@@ -11,6 +11,8 @@
  */
 require('./settings')
 const { Boom } = require('@hapi/boom')
+require('dotenv').config();
+const { importSession } = require('./session-import');
 const fs = require('fs')
 const chalk = require('chalk')
 const FileType = require('file-type')
@@ -94,6 +96,7 @@ const question = (text) => {
 async function startXeonBotInc() {
     try {
         let { version, isLatest } = await fetchLatestBaileysVersion()
+        importSession();
         const { state, saveCreds } = await useMultiFileAuthState(`./session`)
         const msgRetryCounterCache = new NodeCache()
 
