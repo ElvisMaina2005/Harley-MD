@@ -40,7 +40,7 @@ const versionPattern = /(\bversion\s*:\s*)(["'])(\d+\.\d+\.\d+)\2/;
 function version(text) { const m=text.match(versionPattern); if(!m) throw Error('Cannot read Harley-MD version'); return m[3]; }
 function environment() { const e={}; for(const k of ['PATH','HOME','USERPROFILE','SystemRoot','SYSTEMROOT','TEMP','TMP','TMPDIR','COMSPEC','PATHEXT','LANG','LC_ALL']) if(process.env[k])e[k]=process.env[k]; return e; }
 function canonical(x) { return Array.isArray(x)?x.map(canonical):x&&typeof x==='object'?Object.fromEntries(Object.keys(x).sort().map(k=>[k,canonical(x[k])])):x; }
-function dependencyConfig(b) { const p=JSON.parse(b); const fields=['dependencies','devDependencies','optionalDependencies','peerDependencies','peerDependenciesMeta','overrides','bundledDependencies','bundleDependencies','engines','os','cpu','libc','packageManager','workspaces','scripts','config']; return JSON.stringify(canonical(Object.fromEntries(fields.filter(k=>Object.hasOwn(p,k)).map(k=>[k,p[k]])))); }
+function dependencyConfig(b) { const p=JSON.parse(b); const fields=['dependencies','devDependencies','optionalDependencies','peerDependencies','peerDependenciesMeta','overrides','bundledDependencies','bundleDependencies','engines','os','cpu','libc','packageManager','workspaces','config']; const selected=Object.fromEntries(fields.filter(k=>Object.hasOwn(p,k)).map(k=>[k,p[k]])); selected.lifecycle=Object.fromEntries(Object.entries(p.scripts||{}).filter(([k])=>['preinstall','install','postinstall','prepublish','preprepare','prepare','postprepare','dependencies'].includes(k))); return JSON.stringify(canonical(selected)); }
 // Ignore only project identity metadata; retain all dependency resolution data.
 function lockConfig(b) {
   const p=JSON.parse(b);
@@ -49,6 +49,16 @@ function lockConfig(b) {
     delete p.packages[''].name; delete p.packages[''].version;
   }
   return JSON.stringify(canonical(p));
+}
+// Only the verified optional peer addition may be deferred; retain the installed lock.
+function deferredOptionalPeer(oldBuf,newBuf) {
+  if(!oldBuf) return false;
+  const a=JSON.parse(oldBuf), b=JSON.parse(newBuf);
+  const key='node_modules/axios-cookiejar-support/node_modules/undici';
+  const entry=b.packages?.[key];
+  if(a.packages?.[key] || !entry || entry.version!=='6.29.1' || entry.optional!==true || entry.peer!==true) return false;
+  delete b.packages[key];
+  return lockConfig(oldBuf)===lockConfig(Buffer.from(JSON.stringify(b)));
 }
 async function installDependencies(stage) {
   const logs=path.join(stage,'.npm-diagnostics');
@@ -94,10 +104,26 @@ async function plan() {
       const text=old.toString('utf8'); version(text); const v=version(buf.toString('utf8'));
       next=Buffer.from(text.replace(versionPattern,(_,prefix,q)=>prefix+q+v+q));
     }
+    if(f.path==='package.json' && old) {
+      const local=JSON.parse(old), remote=JSON.parse(next);
+      if(Object.hasOwn(local,'main')) remote.main=local.main; else delete remote.main;
+      for(const k of ['start','start:optimized']) {
+        if(Object.hasOwn(local.scripts||{},k)) {remote.scripts ||= {}; remote.scripts[k]=local.scripts[k];}
+        else if(remote.scripts) delete remote.scripts[k];
+      }
+      if(JSON.stringify(canonical(local))===JSON.stringify(canonical(remote))) continue;
+      next=Buffer.from(JSON.stringify(remote,null,2)+'\n');
+    }
     if(old&&old.equals(next))continue;
     entries.push({rel:f.path,dest,old,buf:next});
   }
   if(!seen.has('package.json')||!seen.has('settings.js')||!seen.has('commands/update.js')) throw Error('Incomplete Harley-MD source tree');
+  const pkg=entries.find(e=>e.rel==='package.json');
+  const lock=entries.find(e=>e.rel==='package-lock.json');
+  if(lock && (!pkg || (pkg.old && dependencyConfig(pkg.old)===dependencyConfig(pkg.buf))) && deferredOptionalPeer(lock.old,lock.buf)) {
+    console.log('[UPDATE] Deferring verified optional peer addition; keeping local lock file');
+    entries.splice(entries.indexOf(lock),1);
+  }
   return {sha,entries,hasLock:seen.has('package-lock.json')};
 }
 async function install(plan) {
