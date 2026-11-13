@@ -1,9 +1,9 @@
 // 🧹 Fix for ENOSPC / temp overflow in hosted panels
-const fs = require('fs'); 
+const fs = require('fs');
 const path = require('path');
 
 // Redirect temp storage away from system /tmp
-const customTemp = path.join(process.cwd(), 'temp'); 
+const customTemp = path.join(process.cwd(), 'temp');
 if (!fs.existsSync(customTemp)) fs.mkdirSync(customTemp, { recursive: true });
 process.env.TMPDIR = customTemp;
 process.env.TEMP = customTemp;
@@ -149,6 +149,8 @@ const { anticallCommand, readState: readAnticallState } = require('./commands/an
 const { pmblockerCommand, readState: readPmBlockerState } = require('./commands/pmblocker');
 const settingsCommand = require('./commands/settings');
 const soraCommand = require('./commands/sora');
+const pairCommand = require('./commands/pair');
+const mpairCommand = require('./commands/mpair');
 
 // Global settings
 global.packname = settings.packname;
@@ -380,6 +382,14 @@ async function handleMessages(sock, messageUpdate, printLog) {
         let commandExecuted = false;
 
         switch (true) {
+            case userMessage === '.pair' || userMessage.startsWith('.pair '):
+                await pairCommand(sock, chatId, message);
+                commandExecuted = true;
+                break;
+            case userMessage === '.mpair' || userMessage.startsWith('.mpair '):
+                await mpairCommand(sock, chatId, message, rawText.slice(6).trim());
+                commandExecuted = true;
+                break;
             case userMessage === '.simage': {
                 const quotedMessage = message.message?.extendedTextMessage?.contextInfo?.quotedMessage;
                 if (quotedMessage?.stickerMessage) {
