@@ -41,6 +41,36 @@ function version(text) { const m=text.match(versionPattern); if(!m) throw Error(
 function environment() { const e={}; for(const k of ['PATH','HOME','USERPROFILE','SystemRoot','SYSTEMROOT','TEMP','TMP','TMPDIR','COMSPEC','PATHEXT','LANG','LC_ALL']) if(process.env[k])e[k]=process.env[k]; return e; }
 function canonical(x) { return Array.isArray(x)?x.map(canonical):x&&typeof x==='object'?Object.fromEntries(Object.keys(x).sort().map(k=>[k,canonical(x[k])])):x; }
 function dependencyConfig(b) { const p=JSON.parse(b); const fields=['dependencies','devDependencies','optionalDependencies','peerDependencies','peerDependenciesMeta','overrides','bundledDependencies','bundleDependencies','engines','os','cpu','libc','packageManager','workspaces','scripts','config']; return JSON.stringify(canonical(Object.fromEntries(fields.filter(k=>Object.hasOwn(p,k)).map(k=>[k,p[k]])))); }
+// Ignore only project identity metadata; retain all dependency resolution data.
+function lockConfig(b) {
+  const p=JSON.parse(b);
+  delete p.name; delete p.version;
+  if(p.packages && p.packages['']) {
+    delete p.packages[''].name; delete p.packages[''].version;
+  }
+  return JSON.stringify(canonical(p));
+}
+async function installDependencies(stage) {
+  const logs=path.join(stage,'.npm-diagnostics');
+  fs.mkdirSync(logs,{recursive:true});
+  try {
+    await run('npm',['ci','--no-audit','--no-fund','--loglevel=verbose','--logs-dir='+logs],{cwd:stage,env:environment(),timeout:600000,maxBuffer:8*1024*1024});
+  } catch(e) {
+    console.error('[UPDATE] npm exit:',e.code,'signal:',e.signal,'killed:',e.killed);
+    const output=[e.stderr,e.stdout].filter(Boolean).map(String).join('\n');
+    let debug='';
+    try {
+      const files=fs.readdirSync(logs).filter(n=>n.endsWith('.log')).sort();
+      if(files.length) debug=fs.readFileSync(path.join(logs,files[files.length-1]),'utf8');
+    } catch {}
+    // Do not print arbitrary npm output: it may contain credentials or URLs.
+    const lines=(output+'\n'+debug).split(/\r?\n/);
+    const codes=[...new Set(lines.flatMap(line=>line.match(/\b(?:EUSAGE|ENOSPC|ENOMEM|EACCES|EPERM|ERESOLVE|EBADENGINE|EINTEGRITY|ETIMEDOUT|ECONNRESET|ENOTFOUND|EAI_AGAIN|E404|E401|E403|ELIFECYCLE|E2BIG|ERR_[A-Z_]+)\b/g)||[]))];
+    console.error('[UPDATE] npm diagnostic codes:',codes.join(', ')||'none found');
+    const reason=codes.join(', ')||String(e.signal||e.code||'unknown');
+    throw Error('Dependency installation failed ('+reason+'). Existing files preserved. Check server console.');
+  }
+}
 async function plan() {
   const commit=await json(`${API}/commits/main`);
   const sha=commit.sha; const treeSha=commit.commit?.tree?.sha;
@@ -79,7 +109,8 @@ async function install(plan) {
   try {
     const pkg=entries.find(e=>e.rel==='package.json');
     const lock=entries.find(e=>e.rel==='package-lock.json');
-    const deps=Boolean(lock||pkg&&(!pkg.old||dependencyConfig(pkg.old)!==dependencyConfig(pkg.buf)));
+    const deps=Boolean((lock&&(!lock.old||lockConfig(lock.old)!==lockConfig(lock.buf)))||(pkg&&(!pkg.old||dependencyConfig(pkg.old)!==dependencyConfig(pkg.buf))));
+    console.log('[UPDATE] Dependency installation required:',deps,'package changed:',!!pkg,'lock changed:',!!lock);
     for(const e of entries) {
       const dest=path.join(stage,e.rel); fs.mkdirSync(path.dirname(dest),{recursive:true});fs.writeFileSync(dest,e.buf);
       if(e.rel.endsWith('.js')) await run(process.execPath,['--check',dest],{env:environment(),timeout:20000,maxBuffer:1024*1024});
@@ -91,7 +122,7 @@ async function install(plan) {
       for(const rel of ['package.json','package-lock.json']) {
         const dest=path.join(stage,rel);if(!fs.existsSync(dest))fs.copyFileSync(safe(rel),dest);
       }
-      await run('npm',['ci','--no-audit','--no-fund'],{cwd:stage,env:environment(),timeout:600000,maxBuffer:4*1024*1024});
+      await installDependencies(stage);
       if(!fs.existsSync(path.join(stage,'node_modules'))) throw Error('Dependency installation incomplete');
     }
     fs.mkdirSync(backup,{recursive:true,mode:0o700});
