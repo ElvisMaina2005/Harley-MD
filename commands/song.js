@@ -4,6 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const { toAudio } = require('../lib/converter');
 const APIs = require('../lib/api');
+const Media = require('../lib/mediaEngine');
 
 const {
   UA,
@@ -55,8 +56,8 @@ async function fetchAudioBuffer(audioUrl, headers, attempts = 3) {
       const res = await axios.get(audioUrl, {
         responseType: 'arraybuffer',
         timeout: 120000,
-        maxContentLength: Infinity,
-        maxBodyLength: Infinity,
+        maxContentLength: 100 * 1024 * 1024,
+        maxBodyLength: 100 * 1024 * 1024,
         decompress: true,
         validateStatus: (s) => s >= 200 && s < 400,
         headers,
@@ -67,7 +68,7 @@ async function fetchAudioBuffer(audioUrl, headers, attempts = 3) {
     } catch (err) {
       lastError = err;
       const status = err.response?.status;
-      if (status === 403 || status === 451) throw err;
+      if ([402,403,404,429,451].includes(status)) throw err;
       console.log(`[song] file fetch ${attempt}/${attempts}:`, status || err.code || err.message);
       if (attempt < attempts) await APIs.sleep(1200 * attempt);
     }
@@ -118,9 +119,9 @@ async function songCommand(sock, chatId, message) {
 
     // Knight first; rest are fallbacks (same sources as mini)
     const apiMethods = [
-      { name: 'Knight API', method: () => knightSongDownload(video.url) },
+      { name: 'Knight', method: () => knightSongDownload(video.url) },
       { name: 'Hector', method: () => hectorSongDownload(video.url) },
-      { name: 'Prince API', method: () => princeSongDownload(video.url) },
+      { name: 'Prince', method: () => princeSongDownload(video.url) },
       { name: 'Prexzy', method: () => prexzySongDownload(video.url) },
       { name: 'EliteProTech', method: () => APIs.getEliteProTechDownloadByUrl(video.url) },
       { name: 'Yupra', method: () => APIs.getYupraDownloadByUrl(video.url) },
@@ -128,53 +129,22 @@ async function songCommand(sock, chatId, message) {
       { name: 'Izumi', method: () => APIs.getIzumiDownloadByUrl(video.url) },
     ];
 
-    for (const apiMethod of apiMethods) {
-      try {
-        audioData = await apiMethod.method();
-        const audioUrl =
-          audioData.download || audioData.audio || audioData.downloadUrl || audioData.dl || audioData.url;
-
-        if (!audioUrl) {
-          console.log(`${apiMethod.name} returned no download URL, trying next...`);
-          continue;
-        }
-        if (isIpLockedCdn(audioUrl)) {
-          console.log(`${apiMethod.name} gave IP-locked CDN URL, trying next...`);
-          continue;
-        }
-
-        const headers = {
-          'User-Agent': UA,
-          Accept: '*/*',
-          'Accept-Encoding': 'identity',
-        };
-        if (audioData.referer) headers.Referer = audioData.referer;
-
-        try {
-          audioBuffer = await fetchAudioBuffer(audioUrl, headers);
-          if (!audioBuffer?.length || !detectAudioFormat(audioBuffer)) {
-            console.log(`${apiMethod.name} returned non-audio, trying next...`);
-            audioBuffer = null;
-            continue;
-          }
-          console.log(`[song] OK via ${apiMethod.name} (${audioBuffer.length} bytes)`);
-          break;
-        } catch (downloadErr) {
-          console.log(
-            `Download failed from ${apiMethod.name}:`,
-            downloadErr.response?.status || downloadErr.code || downloadErr.message
-          );
-        }
-      } catch (apiErr) {
-        console.log(`${apiMethod.name} API failed:`, apiErr.message);
-      }
-    }
-
-    if (!audioBuffer?.length) {
-      throw new Error('All download sources failed. The content may be unavailable or blocked.');
+    const result = await Media.tryProviders(apiMethods.map(({name, method}) => [name, method]), async (url, data) => {
+      const headers = { 'User-Agent': UA, Accept: '*/*', 'Accept-Encoding': 'identity' };
+      if (data.referer) headers.Referer = data.referer;
+      const buffer = await fetchAudioBuffer(url, headers);
+      if (!detectAudioFormat(buffer)) throw new Error('Not an audio file');
+      return buffer;
+    });
+    if (result) { audioBuffer = result.buffer; audioData = result; }
+    else {
+      await sock.sendMessage(chatId, { text: '🔎 Trying local audio download fallback...' }, { quoted: message });
+      audioBuffer = await Media.localDownload(video.url, 'audio');
+      audioData = { title: video.title };
     }
 
     const detected = detectAudioFormat(audioBuffer);
+    if (!detected) throw new Error('Invalid audio file');
     let finalBuffer = audioBuffer;
     let finalExtension = 'mp3';
 
@@ -207,7 +177,7 @@ async function songCommand(sock, chatId, message) {
       }
     } catch {}
   } catch (err) {
-    console.error('Song command error:', err);
+    console.error('Song command error:', err?.message || 'Unknown error');
     let errorMessage = '❌ Failed to download song.';
     if (err.message?.includes('All download sources failed')) {
       errorMessage = '❌ All download sources failed. The content may be unavailable or blocked.';

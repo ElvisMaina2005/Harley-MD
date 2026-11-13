@@ -1,6 +1,7 @@
-const yts = require('yt-search'); 
+const yts = require('yt-search');
 const settings = require('../settings');
 const APIs = require('../lib/api');
+const Media = require('../lib/mediaEngine');
 const { fetchWhatsAppVideo } = require('../lib/waVideo');
 
 function isYouTubeUrl(text) {
@@ -17,7 +18,7 @@ function formatInfo(video) {
   return `🎬 *${video.title}*\n⏱ Duration: ${video.timestamp || '—'}\n👀 Views: ${views}`;
 }
 
-async function resolveVideo(videoUrl) {
+async function resolveVideo(videoUrl, consume, report) {
   const steps = [
     ['Knight', () => APIs.knightVideoDownload(videoUrl)],
     ['Prince', () => APIs.princeVideoDownload(videoUrl)],
@@ -27,20 +28,7 @@ async function resolveVideo(videoUrl) {
     ['Okatsu', () => APIs.getOkatsuVideoByUrl(videoUrl)],
   ];
 
-  let lastError;
-  for (const [name, run] of steps) {
-    try {
-      const result = await run();
-      const download = result.download || result.dl_url || result.dl;
-      if (!download || !/^https?:\/\//i.test(download)) throw new Error('No download URL');
-      console.log(`[video] OK via ${name}`);
-      return { title: result.title || 'Video', download, sourceUrl: result.sourceUrl || videoUrl };
-    } catch (err) {
-      lastError = err;
-      console.log(`[video] ${name} failed:`, err?.message || err);
-    }
-  }
-  throw lastError || new Error('All download sources failed');
+  return Media.tryProviders(steps, consume, report);
 }
 
 async function videoCommand(sock, chatId, message) {
@@ -120,10 +108,9 @@ async function videoCommand(sock, chatId, message) {
     }
 
     await update('🔎 Finding download source...', true);
-    const dl = await resolveVideo(videoUrl);
-    await update('📥 Download source found. Starting download...', true);
     const mb = (bytes) => (bytes / (1024 * 1024)).toFixed(1);
-    const video = await fetchWhatsAppVideo(dl.download, {}, (event) => {
+    const progress = (event) => {
+      if (event.stage === 'local') { update(`📥 Downloading video locally... ${Math.floor(event.percent)}%`); return; }
       if (event.stage === 'convert') {
         if (!event.mode) update('⚙️ Inspecting video codecs...', true);
         else {
@@ -142,7 +129,13 @@ async function videoCommand(sock, chatId, message) {
           : `${percent}% — ${mb(loaded)} / ${mb(total)} MB`;
         update(`📥 Downloading video...\n${detail}`, !!complete);
       }
-    });
+    };
+    let dl = await resolveVideo(videoUrl, (url, result) => fetchWhatsAppVideo(url, result.referer ? { Referer: result.referer } : {}, progress), name => update(`📥 Downloading via ${name}...`, true));
+    if (!dl) {
+      await update('🔎 Trying local download fallback...', true);
+      dl = { buffer: await Media.localDownload(videoUrl, 'video', progress), title: preview.title };
+    }
+    const video = dl.buffer;
     await update('📤 Sending video to WhatsApp...', true);
     const botName = settings.botName || 'Knight Bot';
     const title = dl.title || preview.title || 'Video';
@@ -165,7 +158,7 @@ async function videoCommand(sock, chatId, message) {
     console.error('[video]', err?.message || err);
     await sock.sendMessage(
       chatId,
-      { text: `❌ Download failed: ${err?.message || 'Unknown error'}` },
+      { text: '❌ Video unavailable right now. Please try again later or choose another authorized video.' },
       { quoted: message }
     );
   }
