@@ -11,7 +11,7 @@ const settings = {
   maxStoreMessages: 20, 
   storeWriteInterval: 10000,
   description: "This is a bot for managing group commands and automating tasks.",
-  version: "3.1.0",
+  version: "1.0.0",
  updateZipUrl: "https://github.com/ElvisMaina2005/Harley-MD/archive/refs/heads/main.zip",
   // Media / Knight API (song, video, cards, etc.)
   knightApiUrl: process.env.KNIGHT_API_URL || 'https://knightbotapi.stream',
