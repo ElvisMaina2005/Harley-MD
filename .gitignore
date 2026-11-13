@@ -36,3 +36,4 @@ node_modules/
 session-backup/
 .session-import-*/
 .env
+data/update-notifications.json
