@@ -61,6 +61,36 @@ async function waitForSession(sock, chatId, id) {
     await sock.sendMessage(chatId, { text: 'Pairing timed out. If you linked successfully, check your own WhatsApp chat for the private backup link. Otherwise send .mpair again.' });
 }
 
+// Native-flow copy button; fall back to plain text if relay fails.
+async function sendPairingCode(sock, chatId, message, code) {
+    const text = '*🔐 HARLEY-MD PAIRING CODE*\n\n' + code + '\n\nOpen WhatsApp > Linked devices > Link a device > Link with phone number instead. Enter this code only if you requested it.\n\nNever share this code. Your session file will arrive here after successful linking.';
+    try {
+        const { generateWAMessageFromContent } = await import('@whiskeysockets/baileys');
+        const interactive = {
+            viewOnceMessage: {
+                message: {
+                    messageContextInfo: { deviceListMetadata: {}, deviceListMetadataVersion: 2 },
+                    interactiveMessage: {
+                        body: { text },
+                        footer: { text: 'Harley-MD • Keep your code private' },
+                        nativeFlowMessage: {
+                            buttons: [{
+                                name: 'cta_copy',
+                                buttonParamsJson: JSON.stringify({ display_text: 'Copy Code', copy_code: code })
+                            }]
+                        }
+                    }
+                }
+            }
+        };
+        const outgoing = generateWAMessageFromContent(chatId, interactive, { userJid: sock.user.id, quoted: message });
+        await sock.relayMessage(chatId, outgoing.message, { messageId: outgoing.key.id });
+    } catch {
+        console.warn('[MPAIR] Copy button unavailable; using text fallback');
+        await sock.sendMessage(chatId, { text }, { quoted: message });
+    }
+}
+
 async function mpairCommand(sock, chatId, message, args = '') {
     const reply = text => sock.sendMessage(chatId, { text }, { quoted: message });
     if (!privateJid(chatId)) return reply('🔒 Please send .mpair in a private chat with the bot. Pairing codes are never sent to groups.');
@@ -80,7 +110,7 @@ async function mpairCommand(sock, chatId, message, args = '') {
         const response = await axios.get(`${BASE}/code`, { params: { number }, timeout: 90000, maxRedirects: 0 });
         const { id, code } = response.data || {};
         if (typeof id !== 'string' || !/^[a-f0-9]{64}$/.test(id) || typeof code !== 'string' || !/^[A-Z0-9]{4}-?[A-Z0-9]{4}$/i.test(code)) throw new Error('Invalid pairing response');
-        await reply('*🔐 HARLEY-MD PAIRING CODE*\n\n' + code + '\n\nOpen WhatsApp > Linked devices > Link a device > Link with phone number instead. Enter this code only if you requested it.\n\nNever share this code. Your session file will arrive here after successful linking.');
+        await sendPairingCode(sock, chatId, message, code);
         background = true;
         void waitForSession(sock, chatId, id).catch(async () => {
             console.warn('[MPAIR] Session retrieval or delivery failed');
