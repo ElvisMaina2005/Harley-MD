@@ -5,7 +5,7 @@ const settings = {
   author: '‎',
   botName: "Harley-MD",
   botOwner: 'Elvis', 
-  ownerNumber: '254742097058', 
+  ownerNumber: '254782652527', 
   giphyApiKey: 'qnl7ssQChTdPjsKta2Ax2LMaGXz303tq',
   commandMode: "public",
   maxStoreMessages: 20, 
