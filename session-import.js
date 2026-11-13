@@ -1,25 +1,43 @@
 
 const fs = require('fs');
 const path = require('path');
+const { createHash, randomBytes } = require('crypto');
+const MARKER = 'harley-session-fingerprint.json';
+const fingerprint = value => createHash('sha256').update(value).digest('hex');
+function readJson(file) {
+    try { return JSON.parse(fs.readFileSync(file, 'utf8')); } catch { return null; }
+}
+function sameIdentity(a, b) {
+    // Stable public identity and noise keys identify the linked device.
+    return a?.registered === true && b?.registered === true &&
+        a.noiseKey?.public && a.signedIdentityKey?.public &&
+        JSON.stringify(a.noiseKey.public) === JSON.stringify(b.noiseKey?.public) &&
+        JSON.stringify(a.signedIdentityKey.public) === JSON.stringify(b.signedIdentityKey?.public);
+}
+function writeMarker(dir, hash) {
+    const tmp = path.join(dir, MARKER + '.tmp-' + randomBytes(6).toString('hex'));
+    try {
+        fs.writeFileSync(tmp, JSON.stringify({ sha256: hash }), { mode: 0o600, flag: 'wx' });
+        fs.renameSync(tmp, path.join(dir, MARKER));
+    } finally { if (fs.existsSync(tmp)) fs.unlinkSync(tmp); }
+}
 
-const PREFIX = 'HARLEY-MD:~'; 
+const PREFIX = 'HARLEY-MD:~';
 const { validTimezone } = require('./lib/timezone');
 
 function importSession() {
     const sessionDir = path.resolve(__dirname, 'session');
 
-    // Preserve an existing working session
-    if (fs.existsSync(path.join(sessionDir, 'creds.json'))) {
-        const creds = JSON.parse(fs.readFileSync(path.join(sessionDir, 'creds.json'), 'utf8'));
-        if (process.env.SESSION_ID?.trim() && creds.registered !== true) throw new Error('Existing session is not registered. Stop the bot and replace it with a fresh session.');
-        console.log('Existing session found.');
+    const sessionId = process.env.SESSION_ID?.trim();
+    const existing = readJson(path.join(sessionDir, 'creds.json'));
+    if (!sessionId) {
+        console.log(existing ? 'Existing session found.' : 'No SESSION_ID configured.');
         return;
     }
-
-    const sessionId = process.env.SESSION_ID?.trim();
-
-    if (!sessionId) {
-        console.log('No SESSION_ID configured.');
+    const hash = fingerprint(sessionId);
+    const marker = readJson(path.join(sessionDir, MARKER));
+    if (existing?.registered === true && marker?.sha256 === hash) {
+        console.log('Existing session found (same SESSION_ID).');
         return;
     }
 
@@ -34,10 +52,11 @@ function importSession() {
         'base64'
     ).toString('utf8');
 
-    const payload = JSON.parse(decoded);
+    let payload;
+    try { payload = JSON.parse(decoded); } catch { throw new Error('Invalid session payload.'); }
 
     if (
-        payload.version !== 1 ||
+        !payload || payload.version !== 1 ||
         payload.format !== 'baileys-multi-file' ||
         !payload.files ||
         !payload.files['creds.json']
@@ -52,6 +71,7 @@ function importSession() {
                 !/^[a-zA-Z0-9_.@+-]+\.json$/.test(name) ||
                 name.includes('..') ||
                 name === 'harley-timezone.json' ||
+                name === MARKER ||
                 typeof content !== 'string'
             ) {
                 throw new Error('Invalid session file.');
@@ -67,6 +87,16 @@ function importSession() {
         }
     );
 
+    const incoming = JSON.parse(files.find(([name]) => name === 'creds.json')[1].toString('utf8'));
+    if (!incoming.noiseKey?.public || !incoming.noiseKey?.private || !incoming.signedIdentityKey?.public || !incoming.signedIdentityKey?.private || !incoming.me?.id) {
+        throw new Error('Session credentials are incomplete. Generate a fresh SESSION_ID.');
+    }
+    // Upgrade legacy installations without resetting their live ratchet state.
+    if (sameIdentity(existing, incoming)) {
+        writeMarker(sessionDir, hash);
+        console.log('Existing session found (fingerprint initialized).');
+        return;
+    }
     const staging = fs.mkdtempSync(
         path.join(__dirname, '.session-import-')
     );
@@ -85,33 +115,20 @@ function importSession() {
             fs.writeFileSync(path.join(staging, 'harley-timezone.json'), JSON.stringify({ timezone }), { mode: 0o600 });
         }
 
+        writeMarker(staging, hash);
+        let backup;
         if (fs.existsSync(sessionDir)) {
-            // Remove only the empty placeholder
-            const placeholder = path.join(
-                sessionDir,
-                'upload creds file here'
-            );
-
-            if (
-                fs.existsSync(placeholder) &&
-                fs.statSync(placeholder).isFile() &&
-                fs.statSync(placeholder).size === 0
-            ) {
-                fs.unlinkSync(placeholder);
-            }
-
-            if (fs.readdirSync(sessionDir).length > 0) {
-                throw new Error(
-                    'Session folder is not empty. Import cancelled.'
-                );
-            }
-
-            fs.rmdirSync(sessionDir);
+            // Keep the entire old session, including its fingerprint and timezone.
+            backup = path.join(__dirname, 'session-backup-' + Date.now() + '-' + randomBytes(6).toString('hex'));
+            fs.renameSync(sessionDir, backup);
         }
-
-        fs.renameSync(staging, sessionDir);
-
-        console.log('Harley-MD session imported.');
+        try {
+            fs.renameSync(staging, sessionDir);
+        } catch (error) {
+            if (backup && !fs.existsSync(sessionDir)) fs.renameSync(backup, sessionDir);
+            throw error;
+        }
+        console.log(backup ? 'New Harley-MD session imported. Previous session backed up.' : 'Harley-MD session imported.');
 
     } finally {
         if (fs.existsSync(staging)) {
