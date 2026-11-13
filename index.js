@@ -1,6 +1,6 @@
 /**
  * Harley-Bot - A WhatsApp Bot
- * Copyright (c) 2024 Professor
+ * Copyright (c) 2026 Elvis
  * 
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the MIT License.
@@ -75,7 +75,7 @@ setInterval(() => {
     }
 }, 30_000) // check every 30 seconds
 
-let phoneNumber = "254742097058"
+let phoneNumber = process.env.BOT_OWNER_NUMBER || '';
 let owner = JSON.parse(fs.readFileSync('./data/owner.json'))
 
 global.botname = "Harley-MD"
