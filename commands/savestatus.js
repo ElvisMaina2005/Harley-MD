@@ -1,9 +1,3 @@
-/**
- * savestatus — owner only.
- * Reply to a status to save it, or turn on auto-save (rate-limited).
- * Single file: helpers + command. Designed to avoid WhatsApp flood / bans.
- */
-
 const fs = require('fs');
 const path = require('path');
 const { downloadContentFromMessage, downloadMediaMessage } = require('@whiskeysockets/baileys');
