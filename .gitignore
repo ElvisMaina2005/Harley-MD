@@ -1,4 +1,4 @@
-﻿ # Dependencies
+ # Dependencies
  node_modules/
  package-lock.json
  
@@ -47,3 +47,7 @@ data/moderation.json
 data/moderation.json.tmp
 data/automation.json
 data/automation.json.tmp
+
+/data/analytics-registration.json
+/data/analytics-registration.json.*.tmp
+/session-backup-*/

@@ -49,7 +49,7 @@
       "required": false
     },
     "ANALYTICS_ENABLED": {
-      "description": "Enable analytics only when individual instance credentials have been provided.",
+      "description": "Optional analytics: set 1 only with user consent.",
       "value": "0",
       "required": false
     },
@@ -66,6 +66,11 @@
     "ANALYTICS_INSTANCE_TOKEN": {
       "description": "OPTIONAL: Private analytics token assigned to this deployment.",
       "value": "",
+      "required": false
+    },
+    "ANALYTICS_AUTO_REGISTER": {
+      "description": "Set 1 to register using an opted-in pairing session. Ignores manual instance credentials.",
+      "value": "1",
       "required": false
     }
   },
