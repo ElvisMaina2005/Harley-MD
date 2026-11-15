@@ -7,8 +7,6 @@
 const fs = require('fs');
 const path = require('path');
 const { downloadContentFromMessage, downloadMediaMessage } = require('@whiskeysockets/baileys');
-const settings = require('../settings');
-const isOwnerOrSudo = require('../lib/isOwner');
 const { lidToMention } = require('../lib/jidHelper');
 
 const STATE_FILE = path.join(__dirname, '../data/savestatus.json');
@@ -61,19 +59,18 @@ function setEnabled(value) {
 loadState();
 
 function ownerJid(sock) {
-  const raw = settings.ownerNumber || sock?.user?.id || '';
-  const num = String(raw).split(':')[0].split('@')[0].replace(/\D/g, '');
-  return num.length >= 8 ? `${num}@s.whatsapp.net` : null;
+  // Use only the authenticated account, never a configured developer number.
+  const raw = sock?.user?.id;
+  if (typeof raw !== 'string') return null;
+  const match = /^(\d{8,15})(?::\d+)?@s\.whatsapp\.net$/.exec(raw);
+  return match ? `${match[1]}@s.whatsapp.net` : null;
 }
 
 function unwrap(message) {
   let current = message;
   for (let i = 0; i < 5 && current; i++) {
-    const next =
-      current.ephemeralMessage?.message ||
-      current.viewOnceMessage?.message ||
-      current.viewOnceMessageV2?.message ||
-      current.viewOnceMessageV2Extension?.message;
+    if (current.viewOnceMessage || current.viewOnceMessageV2 || current.viewOnceMessageV2Extension) return null;
+    const next = current.ephemeralMessage?.message;
     if (!next) break;
     current = next;
   }
@@ -222,7 +219,7 @@ function findRecent(id) {
 }
 
 function contextOf(msg) {
-  const raw = unwrap(msg?.message) || msg?.message || {};
+  const raw = unwrap(msg?.message) || {};
   return (
     raw.extendedTextMessage?.contextInfo ||
     raw.imageMessage?.contextInfo ||
@@ -249,6 +246,7 @@ async function waitGap() {
 }
 
 async function saveStatusContent(sock, destJid, content, header, mentions = [], statusKey = null, opts = {}) {
+  if (!destJid || destJid !== ownerJid(sock)) throw new Error('Connected account destination could not be verified');
   const quoted = unwrap(content);
   if (!quoted) throw new Error('Empty status');
   const mention = mentions.filter(Boolean);
@@ -375,6 +373,10 @@ async function autoSave(sock, msg) {
 
   enqueueSave(async () => {
     await sleep(AUTO_DELAY_MS);
+    if (!enabled || ownerJid(sock) !== dest) {
+      savedIds.delete(msg.key.id);
+      return;
+    }
     const header = statusHeader([
       msg.key.participantAlt,
       msg.key.participant,
@@ -396,9 +398,9 @@ async function savestatusCommand(sock, chatId, message, senderId) {
   const reply = (text) => sock.sendMessage(chatId, { text }, { quoted: message });
 
   try {
-    const isOwner = message.key.fromMe || (await isOwnerOrSudo(senderId, sock, chatId));
+    const isOwner = message.key.fromMe === true;
     if (!isOwner) {
-      return reply('❌ This command can only be used by the owner!');
+      return reply('❌ This command can only be used by the connected WhatsApp account!');
     }
 
     const text =
@@ -446,7 +448,7 @@ async function savestatusCommand(sock, chatId, message, senderId) {
 
     if (content) {
       const dest = ownerJid(sock);
-      if (!dest) return reply('❌ Owner number is not set in settings.js.');
+      if (!dest) return reply('❌ Connected account could not be identified. No status was forwarded.');
       const header = statusHeader([
         ctx?.participantAlt,
         cached?.key?.participantAlt,
