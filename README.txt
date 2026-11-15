@@ -1,0 +1,1 @@
+Restore original menu layout. Merge files into bot root. Keep existing assets/bot_image.jpg and data/menu-custom.jpg. Old menu preferences are ignored. No dependency changes. Commit all six JS files, push, run .update. Test .menu, .setmenuimage, .restoremenuimage, .alive. Old lib/menuCatalog.js can remain unused.

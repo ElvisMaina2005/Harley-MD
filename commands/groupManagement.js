@@ -1,0 +1,44 @@
+const fs = require('fs');
+const path = require('path');
+const file = path.join(__dirname, '../data/group-management.json');
+const names = new Set('lock unlock poll grouplink tagadmin invite getgpp getdesc getparticipants listinactive approveall rejectall'.split(' '));
+const day = 86400000;
+let state;
+function load() { if (!state) { try { state = JSON.parse(fs.readFileSync(file)); } catch(e) { if(e.code !== 'ENOENT') throw e; state = {}; } } return state; }
+function save() { fs.mkdirSync(path.dirname(file), {recursive:true}); const tmp=file+'.tmp'; fs.writeFileSync(tmp, JSON.stringify(load()), {mode:0o600}); fs.renameSync(tmp,file); }
+function group(id) { const s=load(); return s[id] ||= {since:Date.now(), seen:{}, unlockAt:0}; }
+function norm(id) { return String(id||'').replace(/:\d+@/,'@'); }
+function ids(p) { return [p.id,p.lid,p.phoneNumber].filter(Boolean).map(norm); }
+function admin(p) { return p.admin === 'admin' || p.admin === 'superadmin'; }
+function matches(p, values) { return ids(p).some(id=>values.includes(id)); }
+function botAdmin(sock,m) { return m.participants.some(p=>admin(p)&&matches(p,[sock.user?.id,sock.user?.lid].map(norm))); }
+let timer, active, ticking=false; const busy=new Set();
+function start(sock) { stop(); active=sock; timer=setInterval(()=>void tick(sock),15000); timer.unref?.(); void tick(sock); }
+function stop(sock) { if(sock && active!==sock)return; clearInterval(timer); active=null; }
+async function tick(sock) { if(ticking||active!==sock)return; ticking=true; try { for(const [id,g] of Object.entries(load())) { if(active!==sock)break; if(!g.unlockAt||g.unlockAt>Date.now()||busy.has(id))continue; busy.add(id); try { const m=await sock.groupMetadata(id); if(active!==sock||!botAdmin(sock,m))continue; if(m.announce)await sock.groupSettingUpdate(id,'not_announcement'); g.unlockAt=0; save(); await sock.sendMessage(id,{text:'🔓 Scheduled group lock expired.'}); } catch { /* retry next tick */ } finally {busy.delete(id);} } } catch {console.error('Group management state unavailable');} finally {ticking=false;} }
+function observe(message) { const id=message.key?.remoteJid; if(!id?.endsWith('@g.us')||message.key.fromMe||!message.key.participant||message.message?.protocolMessage)return; try { const g=load()[id]; if(!g)return; const sender=norm(message.key.participant); const now=Date.now(); if(now-(g.seen[sender]||0)<60000)return; for(const [k,t] of Object.entries(g.seen))if(now-t>90*day)delete g.seen[k]; if(Object.keys(g.seen).length>=5000&&!g.seen[sender])return; g.seen[sender]=now; save(); } catch {console.error('Group activity state unavailable');} }
+async function run(sock,id,message,cmd,args) {
+ const reply=(text)=>sock.sendMessage(id,{text},{quoted:message});
+ if(!id.endsWith('@g.us'))return reply('This command is for groups only.');
+ if(busy.has(id))return reply('Another group operation is running. Try again shortly.');
+ busy.add(id);
+ try {
+ const m=await sock.groupMetadata(id); const sender=[message.key.participant,message.key.participantAlt].map(norm); if(message.key.fromMe)sender.push(norm(sock.user?.id),norm(sock.user?.lid));
+ if(!m.participants.some(p=>admin(p)&&matches(p,sender)))return reply('Only group admins can use this command.');
+ if(!botAdmin(sock,m))return reply('Make the bot a group admin first.');
+ const g=group(id);
+ switch(cmd) {
+ case 'lock': { let duration=0; if(args){const a=/^(\d+)(m|h)$/i.exec(args); if(!a)return reply('Use .lock or .lock 30m / .lock 2h'); duration=Number(a[1])*(a[2].toLowerCase()==='h'?3600000:60000); if(duration<60000||duration>7*day)return reply('Choose 1 minute to 7 days.');} if(duration&&m.announce&&!g.unlockAt)return reply('Group is already locked manually. Unlock it before scheduling a timed lock.'); const old=g.unlockAt; g.unlockAt=duration?Date.now()+duration:0; save(); try{await sock.groupSettingUpdate(id,'announcement');}catch(e){g.unlockAt=old;save();throw e;} return reply(duration?`🔒 Group locked until ${new Date(g.unlockAt).toISOString()} (UTC).`:'🔒 Group locked.'); }
+ case 'unlock': await sock.groupSettingUpdate(id,'not_announcement');g.unlockAt=0;save();return reply('🔓 Group unlocked.');
+ case 'poll': {const [name,...values]=args.split('|').map(x=>x.trim()); if(!name||name.length>200||values.length<2||values.length>12||values.some(v=>!v||v.length>100)||new Set(values).size!==values.length)return reply('Use .poll Question | Option 1 | Option 2 (2–12 distinct options).');return sock.sendMessage(id,{poll:{name,values,selectableCount:1}});}
+ case 'grouplink': case 'invite': {const code=await sock.groupInviteCode(id);return reply(`${cmd==='invite'?'Share this invitation privately with a contact who wants to join:':'Group invitation link:'}\nhttps://chat.whatsapp.com/${code}`);}
+ case 'tagadmin': {const mentioned=m.participants.filter(admin).map(p=>p.id);return sock.sendMessage(id,{text:`👮 Group admins\n${args.slice(0,500)}\n${mentioned.map(j=>'@'+j.split('@')[0]).join(' ')}`,mentions:mentioned},{quoted:message});}
+ case 'getgpp': {const url=await sock.profilePictureUrl(id,'image');if(!url)return reply('No accessible group photo.');return sock.sendMessage(id,{image:{url},caption:'Group profile picture'},{quoted:message});}
+ case 'getdesc': return reply(m.desc||'No group description.');
+ case 'getparticipants': return reply(`Group: ${m.subject}\nMembers: ${m.participants.length}\nAdmins: ${m.participants.filter(admin).length}\nOther members: ${m.participants.filter(p=>!admin(p)).length}`);
+ case 'listinactive': {const n=args?Number(args):7;if(!Number.isInteger(n)||n<1||n>30)return reply('Use .listinactive 7 (1–30 days).');save();if(Date.now()-g.since<n*day)return reply(`Activity tracking enabled. Wait ${n} days for a meaningful report. Only messages observed by this bot are counted.`);const cutoff=Date.now()-n*day;const candidates=m.participants.filter(p=>!admin(p)&&!ids(p).some(j=>(g.seen[j]||0)>=cutoff));return reply(`No observed messages in ${n} days: ${candidates.length} non-admin members. This is not proof of inactivity: offline periods, new members and identity changes can affect counts.`);}
+ case 'approveall': case 'rejectall': {const pending=await sock.groupRequestParticipantsList(id);if(!pending.length)return reply('No pending requests.');if(args!=='confirm')return reply(`${pending.length} pending requests. Send .${cmd} confirm to process up to 50.`);const action=cmd==='approveall'?'approve':'reject';const batch=pending.slice(0,50).map(p=>p.jid||p.id).filter(Boolean);if(!batch.length)return reply('No usable request identifiers.');const results=await sock.groupRequestParticipantsUpdate(id,batch,action);const ok=Array.isArray(results)?results.filter(r=>String(r.status)==='200').length:0;return reply(`Processed ${batch.length} requests. Confirmed successful: ${ok}. Check pending requests for remaining or failed entries.`);}
+ }
+ } catch {return reply('Group operation failed. Check bot permissions and WhatsApp support.');} finally {busy.delete(id);}
+}
+module.exports={names,run,start,stop,observe};
