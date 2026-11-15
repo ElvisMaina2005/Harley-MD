@@ -1,0 +1,89 @@
+{
+  "name": "Harley-MD",
+  "description": "A powerful multifunctional WhatsApp bot featuring AI assistance, group management, automation, live sports, media tools and automatic updates.",
+  "logo": "https://raw.githubusercontent.com/ElvisMaina2005/Harley-MD/main/assets/bot_image.jpg",
+  "keywords": [
+    "whatsapp",
+    "bot",
+    "harley-md",
+    "baileys",
+    "automation",
+    "ai",
+    "sports",
+    "nodejs"
+  ],
+  "repository": "https://github.com/ElvisMaina2005/Harley-MD.git",
+  "website": "https://harley-md-pair.onrender.com/",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "env": {
+    "SESSION_ID": {
+      "description": "REQUIRED: Generate your session at https://harley-md-pair.onrender.com/ and paste the complete SESSION_ID beginning with HARLEY-MD:~",
+      "value": "",
+      "required": true
+    },
+    "MEDIA_REMOTE_URL": {
+      "description": "Harley-MD media API endpoint.",
+      "value": "https://harley-md-media-api.onrender.com",
+      "required": false
+    },
+    "MEDIA_REMOTE_KEY": {
+      "description": "OPTIONAL: Authorized media API key for remote media downloads.",
+      "value": "",
+      "required": false
+    },
+    "MEDIA_YTDLP_ENABLED": {
+      "description": "Enable local yt-dlp downloads. Keep disabled unless supported by your hosting environment.",
+      "value": "0",
+      "required": false
+    },
+    "HARLEY_UPDATE_NOTIFY": {
+      "description": "Enable automatic update notifications.",
+      "value": "1",
+      "required": false
+    },
+    "HARLEY_UPDATE_AUTO_RESTART": {
+      "description": "Automatically restart the bot after an update.",
+      "value": "0",
+      "required": false
+    },
+    "ANALYTICS_ENABLED": {
+      "description": "Enable analytics only when individual instance credentials have been provided.",
+      "value": "0",
+      "required": false
+    },
+    "ANALYTICS_API_URL": {
+      "description": "Harley-MD analytics API endpoint.",
+      "value": "https://harley-md-analytics-api.onrender.com",
+      "required": false
+    },
+    "ANALYTICS_INSTANCE_ID": {
+      "description": "OPTIONAL: Unique analytics instance ID assigned to this deployment.",
+      "value": "",
+      "required": false
+    },
+    "ANALYTICS_INSTANCE_TOKEN": {
+      "description": "OPTIONAL: Private analytics token assigned to this deployment.",
+      "value": "",
+      "required": false
+    }
+  },
+  "formation": {
+    "worker": {
+      "quantity": 1,
+      "size": "basic"
+    }
+  },
+  "buildpacks": [
+    {
+      "url": "heroku/nodejs"
+    },
+    {
+      "url": "https://github.com/jonathanong/heroku-buildpack-ffmpeg-latest.git"
+    },
+    {
+      "url": "https://github.com/clhuang/heroku-buildpack-webp-binaries.git"
+    }
+  ]
+}
