@@ -16,7 +16,7 @@ const groupManagement = require('./commands/groupManagement');
 require('./settings')
 const { Boom } = require('@hapi/boom')
 require('dotenv').config();
-const { importSession } = require('./session-import');
+const { importSession, syncRemoteSession, startRemoteSync } = require('./session-import');
 const { startDailyGreetings, stopDailyGreetings } = require('./lib/dailyGreetings');
 const { startUpdateNotifier, stopUpdateNotifier } = require('./lib/updateNotifier');
 const analytics = require('./lib/analytics');
@@ -118,7 +118,8 @@ async function startXeonBotInc() {
     if (halted || starting || activeSocket) return;
     starting = true;
     try {
-        importSession();
+        await importSession();
+        startRemoteSync();
         let { version, isLatest } = await fetchLatestBaileysVersion()
         const { state, saveCreds } = await useMultiFileAuthState(`./session`)
         if (importedMode && state.creds.registered !== true) throw new Error('Imported credentials are not registered. Generate a fresh SESSION_ID.');
@@ -152,7 +153,10 @@ async function startXeonBotInc() {
         let pairingTimer = null;
         let connected = false;
         // Save credentials when they update
-        XeonBotInc.ev.on('creds.update', () => { if (activeSocket === XeonBotInc) void saveCreds().catch(() => console.error('Credential save failed')); })
+        XeonBotInc.ev.on('creds.update', () => {
+            if (activeSocket !== XeonBotInc) return;
+            void saveCreds().then(() => syncRemoteSession()).catch(() => console.error('Credential save or remote backup failed'));
+        })
 
     store.bind(XeonBotInc.ev)
 

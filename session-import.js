@@ -25,7 +25,69 @@ function writeMarker(dir, hash) {
 const PREFIX = 'HARLEY-MD:~';
 const { validTimezone } = require('./lib/timezone');
 
-function importSession() {
+function decodeReference(sessionId) {
+    if (!sessionId?.startsWith(PREFIX)) return null;
+    try {
+        const value = JSON.parse(Buffer.from(sessionId.slice(PREFIX.length), 'base64').toString('utf8'));
+        if (value?.version !== 1 || value?.format !== 'harley-remote-session' ||
+            typeof value.apiUrl !== 'string' || !/^[a-f0-9]{48}$/.test(value.id || '') ||
+            !/^[a-f0-9]{64}$/.test(value.accessToken || '')) return null;
+        const origin = new URL(value.apiUrl);
+        if (origin.protocol !== 'https:' || origin.username || origin.password || origin.pathname !== '/' || origin.search || origin.hash) return null;
+        return { ...value, apiUrl: origin.origin };
+    } catch { return null; }
+}
+async function fetchRemoteSession(reference) {
+    const response = await fetch(`${reference.apiUrl}/internal/sessions/${reference.id}`, {
+        headers: { Authorization: `Bearer ${reference.accessToken}` },
+        redirect: 'error',
+        signal: AbortSignal.timeout(30000)
+    });
+    if (!response.ok) throw new Error(`Remote session retrieval failed (${response.status}).`);
+    const result = await response.json();
+    if (typeof result.session !== 'string') throw new Error('Remote session response is invalid.');
+    return result.session;
+}
+function buildLocalSnapshot(directory) {
+    const files = {};
+    for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+        if (!entry.isFile() || !entry.name.endsWith('.json') ||
+            entry.name === MARKER || entry.name === 'harley-timezone.json') continue;
+        const data = fs.readFileSync(path.join(directory, entry.name));
+        try { JSON.parse(data.toString('utf8')); } catch { continue; }
+        files[entry.name] = data.toString('base64');
+    }
+    if (!files['creds.json']) throw new Error('Local session credentials are missing.');
+    return Buffer.from(JSON.stringify({ version: 1, format: 'baileys-multi-file', files }), 'utf8').toString('base64');
+}
+let remoteSyncPending = null;
+async function syncRemoteSession() {
+    const reference = decodeReference(process.env.SESSION_ID?.trim());
+    if (!reference) return false;
+    if (remoteSyncPending) return remoteSyncPending;
+    remoteSyncPending = (async () => {
+        const sessionDir = path.resolve(__dirname, 'session');
+        if (!fs.existsSync(path.join(sessionDir, 'creds.json'))) return false;
+        const session = buildLocalSnapshot(sessionDir);
+        const response = await fetch(`${reference.apiUrl}/internal/sessions/${reference.id}`, {
+            method: 'PUT', redirect: 'error',
+            headers: { Authorization: `Bearer ${reference.accessToken}`, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ session }), signal: AbortSignal.timeout(30000)
+        });
+        if (!response.ok) throw new Error(`Remote session update failed (${response.status}).`);
+        return true;
+    })().finally(() => { remoteSyncPending = null; });
+    return remoteSyncPending;
+}
+function startRemoteSync() {
+    if (global.__harleyRemoteSyncTimer) return;
+    global.__harleyRemoteSyncTimer = setInterval(() => {
+        syncRemoteSession().catch(error => console.error('[SESSION] Remote backup failed:', error.message));
+    }, 60000);
+    global.__harleyRemoteSyncTimer.unref?.();
+}
+
+async function importSession() {
     const sessionDir = path.resolve(__dirname, 'session');
 
     const sessionId = process.env.SESSION_ID?.trim();
@@ -47,10 +109,15 @@ function importSession() {
 
     const encoded = sessionId.slice(PREFIX.length);
 
-    const decoded = Buffer.from(
-        encoded,
-        'base64'
-    ).toString('utf8');
+    let decoded;
+    let reference = decodeReference(sessionId);
+    if (reference) {
+        const snapshot = await fetchRemoteSession(reference);
+        try { decoded = Buffer.from(snapshot, 'base64').toString('utf8'); }
+        catch { throw new Error('Invalid remote session payload.'); }
+    } else {
+        decoded = Buffer.from(encoded, 'base64').toString('utf8');
+    }
 
     let payload;
     try { payload = JSON.parse(decoded); } catch { throw new Error('Invalid session payload.'); }
@@ -140,4 +207,4 @@ function importSession() {
     }
 }
 
-module.exports = { importSession };
+module.exports = { importSession, syncRemoteSession, startRemoteSync };
