@@ -1,3 +1,4 @@
+const botMode = require('../lib/botMode');
 const isAdmin = require('../lib/isAdmin');
 
 async function muteCommand(sock, chatId, senderId, message, durationInMinutes) {
@@ -23,14 +24,16 @@ async function muteCommand(sock, chatId, senderId, message, durationInMinutes) {
             await sock.sendMessage(chatId, { text: `The group has been muted for ${durationInMinutes} minutes.` }, { quoted: message });
             
             // Set timeout to unmute after duration
-            setTimeout(async () => {
+            const unmuteLater = async () => {
+                if (botMode.read() === 'dms') { const retry = setTimeout(unmuteLater, 15000); retry.unref?.(); return; }
                 try {
                     await sock.groupSettingUpdate(chatId, 'not_announcement');
                     await sock.sendMessage(chatId, { text: 'The group has been unmuted.' });
                 } catch (unmuteError) {
                     console.error('Error unmuting group:', unmuteError);
                 }
-            }, durationInMilliseconds);
+            };
+            setTimeout(unmuteLater, durationInMilliseconds);
         } else {
             await sock.sendMessage(chatId, { text: 'The group has been muted.' }, { quoted: message });
         }

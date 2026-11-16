@@ -24,7 +24,7 @@ async function settingsCommand(sock, chatId, message) {
         const isGroup = chatId.endsWith('@g.us');
         const dataDir = './data';
 
-        const mode = readJsonSafe(`${dataDir}/messageCount.json`, { isPublic: true });
+        const mode = require('../lib/botMode').label();
         const autoStatus = readJsonSafe(`${dataDir}/autoStatus.json`, { enabled: false });
         const autoread = readJsonSafe(`${dataDir}/autoread.json`, { enabled: false });
         const autotyping = readJsonSafe(`${dataDir}/autotyping.json`, { enabled: false });
@@ -47,7 +47,7 @@ async function settingsCommand(sock, chatId, message) {
         const lines = [];
         lines.push('*BOT SETTINGS*');
         lines.push('');
-        lines.push(`• Mode: ${mode.isPublic ? 'Public' : 'Private'}`);
+        lines.push(`• Mode: ${mode}`);
         lines.push(`• Auto Status: ${autoStatus.enabled ? 'ON' : 'OFF'}`);
         lines.push(`• Autoread: ${autoread.enabled ? 'ON' : 'OFF'}`);
         lines.push(`• Autotyping: ${autotyping.enabled ? 'ON' : 'OFF'}`);

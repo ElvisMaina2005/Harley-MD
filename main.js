@@ -1,3 +1,4 @@
+const botMode = require('./lib/botMode');
 // 🧹 Fix for ENOSPC / temp overflow in hosted panels
 const fs = require('fs');
 const path = require('path');
@@ -189,6 +190,16 @@ async function handleMessages(sock, messageUpdate, printLog) {
         if (!message?.message) return;
         if (type !== 'notify') return;
 
+        chatId = message.key?.remoteJid;
+        if (!chatId) return;
+        const mode = botMode.read();
+        const recoveryChat = mode === 'groups' && message.key.fromMe && botMode.self(sock,chatId);
+        if (!botMode.allowsChat(mode,chatId) && !recoveryChat) return;
+        if (recoveryChat) {
+            const text = (message.message.conversation || message.message.extendedTextMessage?.text || '').trim().toLowerCase();
+            const prefix = customization.read().prefix;
+            if (!/^\.mode(?:\s|$)/.test(text) && !(text.startsWith(prefix) && /^mode(?:\s|$)/.test(text.slice(prefix.length).trimStart()))) return;
+        }
         // Handle autoread functionality
         await handleAutoread(sock, message);
 
@@ -213,6 +224,7 @@ async function handleMessages(sock, messageUpdate, printLog) {
 
         // Handle button responses
         if (message.message?.buttonsResponseMessage) {
+            if (mode === 'private' && !message.key.fromMe && !senderIsOwnerOrSudo) return;
             const buttonId = message.message.buttonsResponseMessage.selectedButtonId;
             const chatId = message.key.remoteJid;
 
@@ -267,18 +279,13 @@ async function handleMessages(sock, messageUpdate, printLog) {
         if (userMessage.startsWith('.')) {
             console.log(`📝 Command used in ${isGroup ? 'group' : 'private'}: ${userMessage.split(/\s+/)[0]}`);
         }
-        // Read bot mode once; don't early-return so moderation can still run in private mode
-        let isPublic = true;
-        try {
-            const data = JSON.parse(fs.readFileSync('./data/messageCount.json'));
-            if (typeof data.isPublic === 'boolean') isPublic = data.isPublic;
-        } catch (error) {
-            console.error('Error checking access mode:', error);
-            // default isPublic=true on error
-        }
+        const isPublic = mode !== 'private';
         const isOwnerOrSudoCheck = message.key.fromMe || senderIsOwnerOrSudo;
+        const modeCommand = /^\.mode(?:\s|$)/.test(userMessage);
+        // Private mode still runs existing group moderation, but not games or commands for others.
+        const commandAllowed = botMode.allowsCommand(mode,chatId,isOwnerOrSudoCheck,recoveryChat && modeCommand);
         // Check if user is banned (skip ban check for unban command)
-        if (isBanned(senderId) && !userMessage.startsWith('.unban')) {
+        if (!message.key.fromMe && commandAllowed && isBanned(senderId) && !userMessage.startsWith('.unban')) {
             // Only respond occasionally to avoid spam
             if (Math.random() < 0.1) {
                 await sock.sendMessage(chatId, {
@@ -290,7 +297,7 @@ async function handleMessages(sock, messageUpdate, printLog) {
         }
 
         // First check if it's a game move
-        if (/^[1-9]$/.test(userMessage) || userMessage.toLowerCase() === 'surrender') {
+        if (commandAllowed && (/^[1-9]$/.test(userMessage) || userMessage.toLowerCase() === 'surrender')) {
             await handleTicTacToeMove(sock, chatId, senderId, userMessage);
             return;
         }
@@ -351,7 +358,7 @@ async function handleMessages(sock, messageUpdate, printLog) {
             return;
         }
         // In private mode, only owner/sudo can run commands
-        if (!isPublic && !isOwnerOrSudoCheck) {
+        if (!commandAllowed) {
             return;
         }
 
@@ -539,55 +546,27 @@ async function handleMessages(sock, messageUpdate, printLog) {
                 analyticsCommand = 'settings';
                 await settingsCommand(sock, chatId, message);
                 break;
-            case userMessage.startsWith('.mode'):
+            case modeCommand: {
                 analyticsCommand = 'mode';
-                // Check if sender is the owner
-                if (!message.key.fromMe && !senderIsOwnerOrSudo) {
-                    await sock.sendMessage(chatId, { text: 'Only bot owner can use this command!', ...channelInfo }, { quoted: message });
+                if (!message.key.fromMe) {
+                    await sock.sendMessage(chatId,{text:'Only the connected bot owner can change mode.', ...channelInfo},{quoted:message});
                     return;
                 }
-                // Read current data first
-                let data;
-                try {
-                    data = JSON.parse(fs.readFileSync('./data/messageCount.json'));
-                } catch (error) {
-                    console.error('Error reading access mode:', error);
-                    await sock.sendMessage(chatId, { text: 'Failed to read bot mode status', ...channelInfo });
-                    return;
+                const action = userMessage.split(/\s+/)[1];
+                const usage = `*HARLEY-MD MODE*\nCurrent: ${botMode.label()}\n\n.mode public — Everyone, groups and DMs\n.mode private — Owner / authorized sudo\n.mode groups — Groups only\n.mode dms — DMs only; group automation paused\n\nChange mode anytime in Message Yourself.`;
+                if (!action || !botMode.modes.has(action) || userMessage.split(/\s+/).length !== 2) {
+                    await sock.sendMessage(chatId,{text:usage,...channelInfo},{quoted:message}); return;
                 }
-
-                const action = userMessage.split(' ')[1]?.toLowerCase();
-                // If no argument provided, show current status
-                if (!action) {
-                    const currentMode = data.isPublic ? 'public' : 'private';
-                    await sock.sendMessage(chatId, {
-                        text: `Current bot mode: *${currentMode}*\n\nUsage: .mode public/private\n\nExample:\n.mode public - Allow everyone to use bot\n.mode private - Restrict to owner only`,
-                        ...channelInfo
-                    }, { quoted: message });
-                    return;
-                }
-
-                if (action !== 'public' && action !== 'private') {
-                    await sock.sendMessage(chatId, {
-                        text: 'Usage: .mode public/private\n\nExample:\n.mode public - Allow everyone to use bot\n.mode private - Restrict to owner only',
-                        ...channelInfo
-                    }, { quoted: message });
-                    return;
-                }
-
-                try {
-                    // Update access mode
-                    data.isPublic = action === 'public';
-
-                    // Save updated data
-                    fs.writeFileSync('./data/messageCount.json', JSON.stringify(data, null, 2));
-
-                    await sock.sendMessage(chatId, { text: `Bot is now in *${action}* mode`, ...channelInfo });
-                } catch (error) {
-                    console.error('Error updating access mode:', error);
-                    await sock.sendMessage(chatId, { text: 'Failed to update bot access mode', ...channelInfo });
-                }
+                // Confirm a switch to DMs in self-chat, never in the group after activation.
+                const destination = action === 'dms' && isGroup ? String(sock.user?.id || '').replace(/:\d+@/,'@') : chatId;
+                if (!botMode.dm(destination) && action === 'dms') return;
+                botMode.set(action);
+                const text = `*MODE UPDATED*\nMode: ${botMode.label()}\nGroup commands: ${action === 'dms' ? 'OFF' : 'ON'}\nGroup automation: ${action === 'dms' ? 'PAUSED' : 'Existing settings'}\nDM commands: ${action === 'groups' ? 'OFF (owner mode control in self-chat)' : action === 'private' ? 'Owner / sudo only' : 'ON'}\n\nPOWERED BY HARLEY-MD`;
+                // When switching to groups from a non-self DM, confirm in self-chat.
+                const target = action === 'groups' && !isGroup ? String(sock.user?.id || '').replace(/:\d+@/,'@') : destination;
+                await sock.sendMessage(target,{text,...channelInfo});
                 break;
+            }
             case userMessage.startsWith('.anticall'):
                 analyticsCommand = 'anticall';
                 if (!message.key.fromMe && !senderIsOwnerOrSudo) {
@@ -1466,29 +1445,18 @@ async function handleGroupParticipantUpdate(sock, update) {
         const { id, participants, action, author } = update;
 
         // Check if it's a group
-        if (!id.endsWith('@g.us')) return;
+        if (!id.endsWith('@g.us') || botMode.read() === 'dms') return;
 
         await moderation.participant(sock, update);
 
-        // Respect bot mode: only announce promote/demote in public mode
-        let isPublic = true;
-        try {
-            const modeData = JSON.parse(fs.readFileSync('./data/messageCount.json'));
-            if (typeof modeData.isPublic === 'boolean') isPublic = modeData.isPublic;
-        } catch (e) {
-            // If reading fails, default to public behavior
-        }
-
         // Handle promotion events
         if (action === 'promote') {
-            if (!isPublic) return;
             await handlePromotionEvent(sock, id, participants, author);
             return;
         }
 
         // Handle demotion events
         if (action === 'demote') {
-            if (!isPublic) return;
             await handleDemotionEvent(sock, id, participants, author);
             return;
         }
@@ -1512,6 +1480,7 @@ module.exports = {
     handleMessages,
     handleGroupParticipantUpdate,
     handleStatus: async (sock, status) => {
+        if (['groups','dms'].includes(botMode.read())) return;
         await handleStatusUpdate(sock, status);
         try {
             // Only full status messages (messages.upsert) — never reactions / empty updates

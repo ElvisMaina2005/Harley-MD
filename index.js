@@ -1,3 +1,4 @@
+const botMode = require('./lib/botMode');
 const automation = require('./commands/automation');
 const groupManagement = require('./commands/groupManagement');
 /**
@@ -145,6 +146,7 @@ async function startXeonBotInc() {
             keepAliveIntervalMs: 10000,
         })
 
+        botMode.install(XeonBotInc);
         activeSocket = XeonBotInc;
         let pairingTimer = null;
         let connected = false;
@@ -164,13 +166,8 @@ async function startXeonBotInc() {
                 await handleStatus(XeonBotInc, chatUpdate);
                 return;
             }
-            // In private mode, only block non-group messages (allow groups for moderation)
-            // Note: XeonBotInc.public is not synced, so we check mode in main.js instead
-            // This check is kept for backward compatibility but mainly blocks DMs
-            if (!XeonBotInc.public && !mek.key.fromMe && chatUpdate.type === 'notify') {
-                const isGroup = mek.key?.remoteJid?.endsWith('@g.us')
-                if (!isGroup) return // Block DMs in private mode, but allow group messages
-            }
+            const mode = botMode.read();
+            if (!botMode.allowsChat(mode,mek.key.remoteJid) && !(mode === 'groups' && mek.key.fromMe && botMode.self(XeonBotInc,mek.key.remoteJid))) return;
             // Antibot must run before BAE5 drop — those IDs are exactly other Baileys bots
             if (mek.key?.remoteJid?.endsWith('@g.us') && !mek.key.fromMe) {
                 try {
@@ -377,7 +374,7 @@ async function startXeonBotInc() {
             if (!state.enabled) return;
             for (const call of calls) {
                 const callerJid = call.from || call.peerJid || call.chatId;
-                if (!callerJid) continue;
+                if (!callerJid || !botMode.allowsChat(botMode.read(),callerJid) || (botMode.read() === 'dms' && (call.isGroup || botMode.group(call.chatId)))) continue;
                 try {
                     // First: attempt to reject the call if supported
                     try {
