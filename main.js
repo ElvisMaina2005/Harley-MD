@@ -1,3 +1,4 @@
+const ownerGroups = require('./lib/ownerGroups');
 const botMode = require('./lib/botMode');
 // 🧹 Fix for ENOSPC / temp overflow in hosted panels
 const fs = require('fs');
@@ -195,6 +196,8 @@ async function handleMessages(sock, messageUpdate, printLog) {
         const mode = botMode.read();
         const recoveryChat = mode === 'groups' && message.key.fromMe && botMode.self(sock,chatId);
         if (!botMode.allowsChat(mode,chatId) && !recoveryChat) return;
+        const controlText = message.message.conversation || message.message.extendedTextMessage?.text || message.message.imageMessage?.caption || message.message.videoMessage?.caption || "";
+        if (await ownerGroups.handle(sock,message,controlText,customization.read().prefix)) return;
         if (recoveryChat) {
             const text = (message.message.conversation || message.message.extendedTextMessage?.text || '').trim().toLowerCase();
             const prefix = customization.read().prefix;
@@ -222,9 +225,10 @@ async function handleMessages(sock, messageUpdate, printLog) {
         const senderIsSudo = await isSudo(senderId);
         const senderIsOwnerOrSudo = await isOwnerOrSudo(senderId, sock, chatId);
 
+        const groupAccess = !isGroup || await botMode.groupCommandAllowed(sock,message,senderIsOwnerOrSudo);
         // Handle button responses
         if (message.message?.buttonsResponseMessage) {
-            if (mode === 'private' && !message.key.fromMe && !senderIsOwnerOrSudo) return;
+            if (!groupAccess || (mode === 'private' && !message.key.fromMe && !senderIsOwnerOrSudo)) return;
             const buttonId = message.message.buttonsResponseMessage.selectedButtonId;
             const chatId = message.key.remoteJid;
 
@@ -283,7 +287,7 @@ async function handleMessages(sock, messageUpdate, printLog) {
         const isOwnerOrSudoCheck = message.key.fromMe || senderIsOwnerOrSudo;
         const modeCommand = /^\.mode(?:\s|$)/.test(userMessage);
         // Private mode still runs existing group moderation, but not games or commands for others.
-        const commandAllowed = botMode.allowsCommand(mode,chatId,isOwnerOrSudoCheck,recoveryChat && modeCommand);
+        const commandAllowed = groupAccess && botMode.allowsCommand(mode,chatId,isOwnerOrSudoCheck,recoveryChat && modeCommand);
         // Check if user is banned (skip ban check for unban command)
         if (!message.key.fromMe && commandAllowed && isBanned(senderId) && !userMessage.startsWith('.unban')) {
             // Only respond occasionally to avoid spam
@@ -1445,7 +1449,7 @@ async function handleGroupParticipantUpdate(sock, update) {
         const { id, participants, action, author } = update;
 
         // Check if it's a group
-        if (!id.endsWith('@g.us') || botMode.read() === 'dms') return;
+        if (!id.endsWith('@g.us') || !botMode.allowsChat(botMode.read(),id)) return;
 
         await moderation.participant(sock, update);
 

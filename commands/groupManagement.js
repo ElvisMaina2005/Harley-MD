@@ -17,7 +17,7 @@ let timer, active, ticking=false; const busy=new Set();
 const queued = new Map();
 let requestListener;
 function enqueue(sock, event) {
- if(active!==sock || botMode.read()==='dms' || event?.action!=='created' || !botMode.group(event.id))return;
+ if(active!==sock || !botMode.allowsChat(botMode.read(),event?.id) || event?.action!=='created' || !botMode.group(event.id))return;
  try {
   if(load()[event.id]?.autoApprove!==true)return;
   const jid=event.participant;
@@ -32,14 +32,14 @@ async function drain(sock,id) {
  const list=queued.get(id); if(!list?.size)return;
  busy.add(id);
  try {
-  if(botMode.read()==='dms'||load()[id]?.autoApprove!==true){queued.delete(id);return;}
+  if(!botMode.allowsChat(botMode.read(),id)||load()[id]?.autoApprove!==true){queued.delete(id);return;}
   const m=await sock.groupMetadata(id);
-  if(active!==sock||botMode.read()==='dms'||load()[id]?.autoApprove!==true||!botAdmin(sock,m)){queued.delete(id);return;}
+  if(active!==sock||!botMode.allowsChat(botMode.read(),id)||load()[id]?.autoApprove!==true||!botAdmin(sock,m)){queued.delete(id);return;}
   const pending=await sock.groupRequestParticipantsList(id);
   const current=new Set(pending.map(p=>norm(p.jid||p.id)));
   const batch=[...list].slice(0,50); for(const jid of batch)list.delete(jid);
   const eligible=batch.filter(jid=>current.has(norm(jid)));
-  if(eligible.length&&active===sock&&botMode.read()!=='dms'&&load()[id]?.autoApprove===true)await sock.groupRequestParticipantsUpdate(id,eligible,'approve');
+  if(eligible.length&&active===sock&&botMode.allowsChat(botMode.read(),id)&&load()[id]?.autoApprove===true)await sock.groupRequestParticipantsUpdate(id,eligible,'approve');
  } catch {console.error('Automatic group approval failed; requests may remain pending'); queued.delete(id);}
  finally {if(!list.size&&queued.get(id)===list)queued.delete(id);busy.delete(id);}
 }
@@ -53,7 +53,7 @@ async function approveAll(sock,id,m) {
  const jids=[...new Set(pending.map(p=>p.jid||p.id).filter(j=>typeof j==='string'&&botMode.dm(j)))];
  let ok=0;
  for(let i=0;i<jids.length;i+=50){
-  if(botMode.read()==='dms')break;
+  if(!botMode.allowsChat(botMode.read(),id))break;
   const batch=jids.slice(i,i+50);
   try {const results=await sock.groupRequestParticipantsUpdate(id,batch,'approve');
    if(Array.isArray(results))ok+=Math.min(batch.length,results.filter(r=>String(r.status)==='200').length);
@@ -64,11 +64,11 @@ async function approveAll(sock,id,m) {
 }
 function start(sock) { stop(); active=sock; requestListener=event=>enqueue(sock,event); sock.ev.on('group.join-request',requestListener); timer=setInterval(()=>{void tick(sock); for(const id of queued.keys())void drain(sock,id);},15000); timer.unref?.(); void tick(sock); }
 function stop(sock) { if(sock && active!==sock)return; clearInterval(timer); if(active&&requestListener)active.ev.off('group.join-request',requestListener); requestListener=null; queued.clear(); active=null; }
-async function tick(sock) { if(ticking||active!==sock||botMode.read()==='dms')return; ticking=true; try { for(const [id,g] of Object.entries(load())) { if(active!==sock)break; if(!g.unlockAt||g.unlockAt>Date.now()||busy.has(id))continue; busy.add(id); try { const m=await sock.groupMetadata(id); if(active!==sock||botMode.read()==='dms'||!botAdmin(sock,m))continue; if(m.announce)await sock.groupSettingUpdate(id,'not_announcement'); g.unlockAt=0; save(); await sock.sendMessage(id,{text:'🔓 Scheduled group lock expired.'}); } catch { /* retry next tick */ } finally {busy.delete(id);} } } catch {console.error('Group management state unavailable');} finally {ticking=false;} }
+async function tick(sock) { if(ticking||active!==sock||botMode.read()==='dms')return; ticking=true; try { for(const [id,g] of Object.entries(load())) { if(active!==sock)break; if(!botMode.allowsChat(botMode.read(),id)||!g.unlockAt||g.unlockAt>Date.now()||busy.has(id))continue; busy.add(id); try { const m=await sock.groupMetadata(id); if(active!==sock||!botMode.allowsChat(botMode.read(),id)||!botAdmin(sock,m))continue; if(m.announce)await sock.groupSettingUpdate(id,'not_announcement'); g.unlockAt=0; save(); await sock.sendMessage(id,{text:'🔓 Scheduled group lock expired.'}); } catch { /* retry next tick */ } finally {busy.delete(id);} } } catch {console.error('Group management state unavailable');} finally {ticking=false;} }
 function observe(message) { const id=message.key?.remoteJid; if(!id?.endsWith('@g.us')||message.key.fromMe||!message.key.participant||message.message?.protocolMessage)return; try { const g=load()[id]; if(!g)return; const sender=norm(message.key.participant); const now=Date.now(); if(now-(g.seen[sender]||0)<60000)return; for(const [k,t] of Object.entries(g.seen))if(now-t>90*day)delete g.seen[k]; if(Object.keys(g.seen).length>=5000&&!g.seen[sender])return; g.seen[sender]=now; save(); } catch {console.error('Group activity state unavailable');} }
 async function run(sock,id,message,cmd,args) {
  const reply=(text)=>sock.sendMessage(id,{text},{quoted:message});
- if(botMode.read()==='dms'&&botMode.group(id))return;
+ if(botMode.group(id)&&!botMode.allowsChat(botMode.read(),id))return;
  if(!id.endsWith('@g.us'))return reply('This command is for groups only.');
  if(busy.has(id))return reply('Another group operation is running. Try again shortly.');
  busy.add(id);
