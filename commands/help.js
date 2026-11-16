@@ -78,6 +78,8 @@ async function helpCommand(sock, chatId, message) {
 ║ ➤ .getparticipants
 ║ ➤ .listinactive [days]
 ║ ➤ .approveall
+║ ➤ .approveall on
+║ ➤ .approveall off
 ║ ➤ .rejectall
 ║ ➤ .antispam <on/off/status/limit>
 ║ ➤ .antistatusmention <on/off>
@@ -104,7 +106,7 @@ async function helpCommand(sock, chatId, message) {
 ║ ➤ .block / .unblock
 ║ ➤ .silent <on/off>
 ║ ➤ .about
-║ ➤ .mode <public/private>
+║ ➤ .mode <public/private/groups/dms>
 ║ ➤ .clearsession
 ║ ➤ .antidelete
 ║ ➤ .cleartmp
