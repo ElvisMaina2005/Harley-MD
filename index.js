@@ -1,3 +1,4 @@
+const memberGreetings = require('./lib/memberGreetings');
 const botMode = require('./lib/botMode');
 const automation = require('./commands/automation');
 const groupManagement = require('./commands/groupManagement');
@@ -302,6 +303,7 @@ async function startXeonBotInc() {
             startUpdateNotifier(XeonBotInc);
             analytics.startHeartbeat(XeonBotInc);
             groupManagement.start(XeonBotInc);
+            memberGreetings.start(XeonBotInc);
             automation.start(XeonBotInc);
             clearTimeout(pairingTimer);
             console.log(chalk.magenta(` `))
@@ -343,6 +345,7 @@ async function startXeonBotInc() {
             stopUpdateNotifier(XeonBotInc);
             analytics.stopHeartbeat(XeonBotInc);
             groupManagement.stop(XeonBotInc);
+            memberGreetings.stop(XeonBotInc);
             automation.stop(XeonBotInc);
             clearTimeout(pairingTimer);
             activeSocket = null;
@@ -422,6 +425,7 @@ async function startXeonBotInc() {
         stopUpdateNotifier(socket);
         analytics.stopHeartbeat(socket);
         groupManagement.stop(socket);
+        memberGreetings.stop(socket);
         automation.stop(socket);
         analytics.recordConnection('startup_failure', 'STARTUP_FAILURE');
         analytics.recordError('STARTUP_FAILURE');
