@@ -34,6 +34,7 @@ async function resolveVideo(videoUrl, consume, report, telemetry) {
 
 async function videoCommand(sock, chatId, message) {
   let telemetry;
+  let downloadingReaction = false;
 
   try {
     const text =
@@ -104,6 +105,13 @@ async function videoCommand(sock, chatId, message) {
       );
     }
 
+    try {
+      await sock.sendMessage(chatId, { react: { text: '⬇️', key: message.key } });
+      downloadingReaction = true;
+    } catch (reactionError) {
+      console.warn('[video] Download reaction failed:', reactionError?.message || reactionError);
+    }
+
     // Progress callbacks are intentionally silent.
     const progress = () => {};
 
@@ -151,6 +159,14 @@ async function videoCommand(sock, chatId, message) {
       { text: 'Video unavailable right now. Please try again later or choose another authorized video.' },
       { quoted: message }
     );
+  } finally {
+    if (downloadingReaction) {
+      try {
+        await sock.sendMessage(chatId, { react: { text: '', key: message.key } });
+      } catch (reactionError) {
+        console.warn('[video] Could not clear download reaction:', reactionError?.message || reactionError);
+      }
+    }
   }
 }
 module.exports = videoCommand;

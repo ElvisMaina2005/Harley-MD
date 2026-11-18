@@ -91,6 +91,7 @@ function detectAudioFormat(buf) {
 
 async function songCommand(sock, chatId, message) {
   let telemetry;
+  let downloadingReaction = false;
   try {
     const raw =
       message.message?.conversation ||
@@ -116,6 +117,13 @@ async function songCommand(sock, chatId, message) {
       await sock.sendMessage(chatId, { image: { url: video.thumbnail }, caption }, { quoted: message });
     } else {
       await sock.sendMessage(chatId, { text: caption }, { quoted: message });
+    }
+
+    try {
+      await sock.sendMessage(chatId, { react: { text: '⬇️', key: message.key } });
+      downloadingReaction = true;
+    } catch (reactionError) {
+      console.warn('[song] Download reaction failed:', reactionError?.message || reactionError);
     }
 
     let audioData;
@@ -190,6 +198,14 @@ async function songCommand(sock, chatId, message) {
       errorMessage = '❌ Download blocked or unavailable in your region.';
     }
     await sock.sendMessage(chatId, { text: errorMessage }, { quoted: message });
+  } finally {
+    if (downloadingReaction) {
+      try {
+        await sock.sendMessage(chatId, { react: { text: '', key: message.key } });
+      } catch (reactionError) {
+        console.warn('[song] Could not clear download reaction:', reactionError?.message || reactionError);
+      }
+    }
   }
 }
 
