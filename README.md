@@ -108,9 +108,9 @@ For further customization and setup guidance, click the button below:
   <a href="https://t.me/HarleyMDBot">
     <img src="https://img.shields.io/badge/Join%20Telegram-0078E7?style=for-the-badge&logo=telegram&logoColor=white" alt="Join Telegram"/>
   </a>
-  <a href="https://whatsapp.com/channel/0029Va90zAnIHphOuO8Msp3A">
-    <img src="https://img.shields.io/badge/Join%20WhatsApp-25D366?style=for-the-badge&logo=whatsapp&logoColor=white" alt="Join WhatsApp"/>
-  </a>
+  <a href="https://whatsapp.com/channel/0029VbF1pVnInlqWtDAR6O0Q">
+    <img src="https://img.shields.io/badge/Join%20HARLEY--MD%20WhatsApp-25D366?style=for-the-badge&logo=whatsapp&logoColor=white" alt="Join HARLEY-MD WhatsApp Channel"/>
+</a>
 </div>
 
 ---
