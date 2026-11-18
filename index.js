@@ -423,7 +423,9 @@ async function startXeonBotInc() {
 
     return XeonBotInc
     } catch (error) {
-        halted = true;
+        const message = String(error?.message || error);
+        const permanent = /Invalid Harley-MD session prefix|Invalid (?:remote )?session payload|Invalid session format|Invalid session file|Invalid session JSON file|Session credentials are not registered|Session credentials are incomplete|Imported credentials are not registered|Remote session retrieval failed \((?:400|401|403|404|410|422)\)|Remote session response is invalid/.test(message);
+        if (permanent) halted = true;
         const socket = activeSocket;
         stopDailyGreetings(socket);
         stopUpdateNotifier(socket);
@@ -435,7 +437,12 @@ async function startXeonBotInc() {
         analytics.recordError('STARTUP_FAILURE');
         activeSocket = null;
         try { socket?.end(undefined); } catch {}
-        console.error('Startup stopped:', error.message);
+        if (permanent) {
+            console.error('Startup halted. Check session configuration:', message);
+        } else {
+            console.error('Startup failed. Automatic retry scheduled:', message);
+            scheduleReconnect();
+        }
     } finally {
         starting = false;
     }
