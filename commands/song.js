@@ -142,7 +142,6 @@ async function songCommand(sock, chatId, message) {
     }, undefined, telemetry);
     if (result) { audioBuffer = result.buffer; audioData = result; }
     else {
-      await sock.sendMessage(chatId, { text: '🔎 Trying local audio download fallback...' }, { quoted: message });
       audioBuffer = await Media.localDownload(video.url, 'audio', undefined, telemetry);
       audioData = { title: video.title };
     }
