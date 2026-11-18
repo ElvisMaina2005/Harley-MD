@@ -1,6 +1,7 @@
-
+﻿
 const fs = require('fs');
 const path = require('path');
+const zlib = require('node:zlib');
 const { createHash, randomBytes } = require('crypto');
 const MARKER = 'harley-session-fingerprint.json';
 const fingerprint = value => createHash('sha256').update(value).digest('hex');
@@ -69,12 +70,13 @@ async function syncRemoteSession() {
         const sessionDir = path.resolve(__dirname, 'session');
         if (!fs.existsSync(path.join(sessionDir, 'creds.json'))) return false;
         const session = buildLocalSnapshot(sessionDir);
+        const compressed = zlib.gzipSync(Buffer.from(session, 'base64')).toString('base64');
         const response = await fetch(`${reference.apiUrl}/internal/sessions/${reference.id}`, {
             method: 'PUT', redirect: 'error',
             headers: { Authorization: `Bearer ${reference.accessToken}`, 'Content-Type': 'application/json' },
-            body: JSON.stringify({ session }), signal: AbortSignal.timeout(30000)
+            body: JSON.stringify({ session: compressed, compression: 'gzip' }), signal: AbortSignal.timeout(30000)
         });
-        if (!response.ok) throw new Error(`Remote session update failed (${response.status}).`);
+        if (!response.ok) { const detail = await response.text(); throw new Error(`Remote session update failed (${response.status}): ${detail.slice(0,300)}`); }
         return true;
     })().finally(() => { remoteSyncPending = null; });
     return remoteSyncPending;
