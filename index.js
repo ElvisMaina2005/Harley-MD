@@ -1,7 +1,7 @@
 const memberGreetings = require('./lib/memberGreetings');
 const botMode = require('./lib/botMode');
 const automation = require('./commands/automation');
-const groupManagement = require('./commands/groupManagement');
+const groupManagement = require('./commands/groupManagement'); 
 /**
  * Harley-Bot - A WhatsApp Bot
  * Copyright (c) 2026 Elvis
