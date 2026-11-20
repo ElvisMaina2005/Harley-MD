@@ -3,6 +3,7 @@ const fs = require('fs');
 const path = require('path');
 const zlib = require('node:zlib');
 const { createHash, randomBytes } = require('crypto');
+const { saveAnalyticsConsent } = require('./lib/analyticsConsent');
 const MARKER = 'harley-session-fingerprint.json';
 const fingerprint = value => createHash('sha256').update(value).digest('hex');
 function readJson(file) {
@@ -15,10 +16,11 @@ function sameIdentity(a, b) {
         JSON.stringify(a.noiseKey.public) === JSON.stringify(b.noiseKey?.public) &&
         JSON.stringify(a.signedIdentityKey.public) === JSON.stringify(b.signedIdentityKey?.public);
 }
+
 function writeMarker(dir, hash) {
     const tmp = path.join(dir, MARKER + '.tmp-' + randomBytes(6).toString('hex'));
     try {
-        fs.writeFileSync(tmp, JSON.stringify({ sha256: hash }), { mode: 0o600, flag: 'wx' });
+        fs.writeFileSync(tmp, JSON.stringify({ sha256: hash, analyticsConsentProcessed: true }), { mode: 0o600, flag: 'wx' });
         fs.renameSync(tmp, path.join(dir, MARKER));
     } finally { if (fs.existsSync(tmp)) fs.unlinkSync(tmp); }
 }
@@ -100,7 +102,7 @@ async function importSession() {
     }
     const hash = fingerprint(sessionId);
     const marker = readJson(path.join(sessionDir, MARKER));
-    if (existing?.registered === true && marker?.sha256 === hash) {
+    if (existing?.registered === true && marker?.sha256 === hash && marker?.analyticsConsentProcessed === true) {
         console.log('Existing session found (same SESSION_ID).');
         return;
     }
@@ -162,6 +164,7 @@ async function importSession() {
     }
     // Upgrade legacy installations without resetting their live ratchet state.
     if (sameIdentity(existing, incoming)) {
+        saveAnalyticsConsent(payload, sessionId);
         writeMarker(sessionDir, hash);
         console.log('Existing session found (fingerprint initialized).');
         return;
@@ -184,7 +187,6 @@ async function importSession() {
             fs.writeFileSync(path.join(staging, 'harley-timezone.json'), JSON.stringify({ timezone }), { mode: 0o600 });
         }
 
-        writeMarker(staging, hash);
         let backup;
         if (fs.existsSync(sessionDir)) {
             // Keep the entire old session, including its fingerprint and timezone.
@@ -197,6 +199,8 @@ async function importSession() {
             if (backup && !fs.existsSync(sessionDir)) fs.renameSync(backup, sessionDir);
             throw error;
         }
+        saveAnalyticsConsent(payload, sessionId);
+        writeMarker(sessionDir, hash);
         console.log(backup ? 'New Harley-MD session imported. Previous session backed up.' : 'Harley-MD session imported.');
 
     } finally {
