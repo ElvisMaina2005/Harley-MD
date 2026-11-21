@@ -160,7 +160,6 @@ async function reactToStatus(sock, statusKey) {
                 }
             },
             {
-                messageId: statusKey.id,
                 statusJidList: [statusKey.remoteJid, statusKey.participant || statusKey.remoteJid]
             }
         );
