@@ -1,0 +1,14 @@
+const {test} = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
+const root = fs.mkdtempSync(path.join(os.tmpdir(),'harley-mode-'));
+fs.mkdirSync(path.join(root,'lib')); fs.mkdirSync(path.join(root,'data'));
+fs.copyFileSync(path.join(__dirname,'../lib/botMode.js'),path.join(root,'lib/botMode.js'));
+const m = require(path.join(root,'lib/botMode.js'));
+const group='123@g.us', dm='456@s.whatsapp.net', self='789@s.whatsapp.net';
+test('legacy mode and persistent migration',()=>{fs.writeFileSync(path.join(root,'data/messageCount.json'),'{"isPublic":false,"counts":5}');assert.equal(m.read(),'private');m.set('dms');assert.equal(m.read(),'dms');assert.equal(JSON.parse(fs.readFileSync(path.join(root,'data/messageCount.json'))).counts,5);assert.throws(()=>m.set('invalid'));});
+test('four modes and owner recovery',()=>{for(const [mode,g,d] of [['public',true,true],['private',false,false],['groups',true,false],['dms',false,true]]){assert.equal(m.allowsCommand(mode,group,false),g);assert.equal(m.allowsCommand(mode,dm,false),d);}assert.equal(m.allowsCommand('private',group,true),true);assert.equal(m.allowsCommand('groups',self,true,true),true);assert.equal(m.allowsCommand('dms',group,true),false);});
+test('socket guards recheck mode on every operation',async()=>{const calls=[];const sock={user:{id:'789:2@s.whatsapp.net'}};for(const name of ['sendMessage','relayMessage','groupParticipantsUpdate','groupSettingUpdate','readMessages','sendPresenceUpdate'])sock[name]=async(...args)=>calls.push([name,...args]);m.install(sock);m.set('dms');for(const name of ['sendMessage','relayMessage','groupParticipantsUpdate','groupSettingUpdate'])await assert.rejects(sock[name](group),{code:'BOT_MODE_BLOCKED'});await assert.rejects(sock.sendMessage('status@broadcast'),{code:'BOT_MODE_BLOCKED'});await sock.readMessages([{remoteJid:group},{remoteJid:dm}]);assert.deepEqual(calls[0][1],[{remoteJid:dm}]);await sock.sendMessage(dm);m.set('groups');await assert.rejects(sock.sendMessage(dm),{code:'BOT_MODE_BLOCKED'});await sock.sendMessage(self);await sock.sendMessage(group);m.set('public');await sock.sendMessage(dm);assert.equal(calls.length,5);});
+test('corrupt state fails closed to DMs',()=>{fs.writeFileSync(path.join(root,'data/bot-mode.json'),'broken');assert.equal(m.read(),'dms');});
