@@ -72,13 +72,39 @@ async function syncRemoteSession() {
         const sessionDir = path.resolve(__dirname, 'session');
         if (!fs.existsSync(path.join(sessionDir, 'creds.json'))) return false;
         const session = buildLocalSnapshot(sessionDir);
-        const compressed = zlib.gzipSync(Buffer.from(session, 'base64')).toString('base64');
+        const snapshotBuffer = Buffer.from(session, 'base64');
+        const snapshotData = JSON.parse(snapshotBuffer.toString('utf8'));
+        const fileSizes = Object.values(snapshotData.files)
+            .map(content => Buffer.from(content, 'base64').length);
+        const largestFileBytes = fileSizes.reduce(
+            (largest, size) => Math.max(largest, size), 0
+        );
+
+        const compressed = zlib.gzipSync(snapshotBuffer).toString('base64');
+        const compressedBuffer = Buffer.from(compressed, 'base64');
+        const requestBody = JSON.stringify({
+            session: compressed,
+            compression: 'gzip'
+        });
+
         const response = await fetch(`${reference.apiUrl}/internal/sessions/${reference.id}`, {
             method: 'PUT', redirect: 'error',
             headers: { Authorization: `Bearer ${reference.accessToken}`, 'Content-Type': 'application/json' },
-            body: JSON.stringify({ session: compressed, compression: 'gzip' }), signal: AbortSignal.timeout(30000)
+            body: requestBody, signal: AbortSignal.timeout(30000)
         });
-        if (!response.ok) { const detail = await response.text(); throw new Error(`Remote session update failed (${response.status}): ${detail.slice(0,300)}`); }
+
+        if (!response.ok) {
+            console.warn('[SESSION] Backup payload diagnostics:', JSON.stringify({
+                sessionFileCount: fileSizes.length,
+                snapshotBytes: snapshotBuffer.length,
+                gzipBytes: compressedBuffer.length,
+                compressedBase64Bytes: Buffer.byteLength(compressed, 'utf8'),
+                requestBodyBytes: Buffer.byteLength(requestBody, 'utf8'),
+                largestFileBytes
+            }));
+            const detail = await response.text();
+            throw new Error(`Remote session update failed (${response.status}): ${detail.slice(0,300)}`);
+        }
         return true;
     })().finally(() => { remoteSyncPending = null; });
     return remoteSyncPending;
