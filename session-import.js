@@ -64,6 +64,9 @@ function buildLocalSnapshot(directory) {
     return Buffer.from(JSON.stringify({ version: 1, format: 'baileys-multi-file', files }), 'utf8').toString('base64');
 }
 let remoteSyncPending = null;
+let lastUploadedSnapshotHash = null;
+let lastUploadedAt = 0;
+const FORCE_REMOTE_BACKUP_INTERVAL_MS = 5 * 60 * 1000;
 async function syncRemoteSession() {
     const reference = decodeReference(process.env.SESSION_ID?.trim());
     if (!reference) return false;
@@ -73,6 +76,11 @@ async function syncRemoteSession() {
         if (!fs.existsSync(path.join(sessionDir, 'creds.json'))) return false;
         const session = buildLocalSnapshot(sessionDir);
         const snapshotBuffer = Buffer.from(session, 'base64');
+        const snapshotHash = fingerprint(snapshotBuffer);
+        if (snapshotHash === lastUploadedSnapshotHash &&
+            Date.now() - lastUploadedAt < FORCE_REMOTE_BACKUP_INTERVAL_MS) {
+            return true;
+        }
         const snapshotData = JSON.parse(snapshotBuffer.toString('utf8'));
         const fileSizes = Object.values(snapshotData.files)
             .map(content => Buffer.from(content, 'base64').length);
@@ -105,6 +113,8 @@ async function syncRemoteSession() {
             const detail = await response.text();
             throw new Error(`Remote session update failed (${response.status}): ${detail.slice(0,300)}`);
         }
+        lastUploadedSnapshotHash = snapshotHash;
+        lastUploadedAt = Date.now();
         return true;
     })().finally(() => { remoteSyncPending = null; });
     return remoteSyncPending;
