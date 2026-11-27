@@ -2,7 +2,7 @@
 const fs = require('fs');
 const path = require('path');
 const { createHash, randomBytes } = require('crypto');
-const MARKER = 'harley-session-fingerprint.json';
+const MARKER = 'harley-session-fingerprint.json'; 
 const fingerprint = value => createHash('sha256').update(value).digest('hex');
 function readJson(file) {
     try { return JSON.parse(fs.readFileSync(file, 'utf8')); } catch { return null; }
