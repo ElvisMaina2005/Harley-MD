@@ -1,4 +1,4 @@
-const memberGreetings = require('./lib/memberGreetings');
+const memberGreetings = require('./lib/memberGreetings'); 
 const botMode = require('./lib/botMode');
 const automation = require('./commands/automation');
 const groupManagement = require('./commands/groupManagement'); 
