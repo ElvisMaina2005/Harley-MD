@@ -343,12 +343,6 @@ async function reactToStatus(sock, statusMessage, config) {
     }
 
     const caption = getStatusCaption(statusMessage);
-
-    if (!caption) {
-        console.log('[AutoStatus] Skipped: status has no text caption.');
-        return;
-    }
-
     const participant = statusKey.participant;
 
     if (!participant) {
@@ -356,16 +350,23 @@ async function reactToStatus(sock, statusMessage, config) {
         return;
     }
 
-    let emoji = chooseCaptionStatusEmoji(caption, config.emojis);
+    let emoji;
 
-    if (emoji) {
-        console.log('[AutoStatus] Using an emoji found in the status caption.');
+    if (!caption) {
+        emoji = config.emojis[Math.floor(Math.random() * config.emojis.length)];
+        console.log('[AutoStatus] No text caption; using a random configured emoji.');
     } else {
-        emoji = await chooseStatusEmoji(caption, config.emojis);
+        emoji = chooseCaptionStatusEmoji(caption, config.emojis);
 
-        if (!emoji) {
-            console.log('[AutoStatus] Gemini unavailable; using local caption-based fallback.');
-            emoji = chooseFallbackStatusEmoji(caption, config.emojis);
+        if (emoji) {
+            console.log('[AutoStatus] Using an emoji found in the status caption.');
+        } else {
+            emoji = await chooseStatusEmoji(caption, config.emojis);
+
+            if (!emoji) {
+                console.log('[AutoStatus] Gemini unavailable; using local caption-based fallback.');
+                emoji = chooseFallbackStatusEmoji(caption, config.emojis);
+            }
         }
     }
 
