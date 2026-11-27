@@ -289,45 +289,106 @@ async function autoStatusCommand(sock, chatId, msg, args) {
     }
 }
 
+function chooseFallbackStatusEmoji(caption, allowedEmojis) {
+    const text = String(caption || '').toLowerCase();
+
+    const rules = [
+        { pattern: /\b(love|lovely|romantic|heart|relationship|nakupenda|mapenzi)\b/u, emojis: ['❤️', '🥰', '😍', '💕', '💖'] },
+        { pattern: /\b(laugh|funny|joke|happy|smile|cheka|furaha)\b/u, emojis: ['😂', '🤣', '😆', '😊'] },
+        { pattern: /\b(celebrat|party|birthday|congrat|wedding|hongera|sherehe)\b/u, emojis: ['🎉', '🥳', '🎊', '👏'] },
+        { pattern: /\b(sad|sorry|cry|pain|miss|huzuni|pole)\b/u, emojis: ['😢', '😭', '💔', '🥺'] },
+        { pattern: /\b(thank|thanks|grateful|bless|prayer|asante|shukrani|baraka)\b/u, emojis: ['🙏', '❤️', '😊'] },
+        { pattern: /\b(beautiful|pretty|cute|gorgeous|handsome|rembo|mzuri)\b/u, emojis: ['😍', '❤️', '✨'] },
+        { pattern: /\b(morning|sunrise|sunshine|asubuhi)\b/u, emojis: ['☀️', '🌞', '❤️'] },
+        { pattern: /\b(food|eating|cook|delicious|chakula)\b/u, emojis: ['😋', '❤️', '🔥'] },
+        { pattern: /\b(success|winner|winning|achievement|goal|ushindi)\b/u, emojis: ['🏆', '💯', '👏', '🔥'] },
+        { pattern: /\b(fire|hot|lit|moto|amazing)\b/u, emojis: ['🔥', '😍', '💯'] }
+    ];
+
+    const relevant = rules
+        .filter(rule => rule.pattern.test(text))
+        .flatMap(rule => rule.emojis)
+        .filter(emoji => allowedEmojis.includes(emoji));
+
+    const uniqueRelevant = [...new Set(relevant)];
+    const choices = uniqueRelevant.length ? uniqueRelevant : allowedEmojis;
+
+    return choices.length
+        ? choices[Math.floor(Math.random() * choices.length)]
+        : null;
+}
+function chooseCaptionStatusEmoji(caption, allowedEmojis) {
+    const segmenter = new Intl.Segmenter('en', { granularity: 'grapheme' });
+    const captionEmojis = Array.from(
+        segmenter.segment(String(caption || '')),
+        item => item.segment
+    );
+
+    return captionEmojis.find(emoji => allowedEmojis.includes(emoji)) || null;
+}
+
 async function reactToStatus(sock, statusMessage, config) {
     const statusKey = statusMessage?.key;
 
-    if (
-        !config.reactOn ||
-        !config.emojis.length ||
-        !statusKey?.id ||
-        statusKey.remoteJid !== 'status@broadcast'
-    ) {
+    if (!config.reactOn) return;
+
+    if (!Array.isArray(config.emojis) || !config.emojis.length) {
+        console.log('[AutoStatus] No reaction emojis are configured.');
+        return;
+    }
+
+    if (!statusKey?.id || statusKey.remoteJid !== 'status@broadcast') {
+        console.log('[AutoStatus] Skipped: invalid status message key.');
         return;
     }
 
     const caption = getStatusCaption(statusMessage);
-    if (!caption) return;
 
-    const emoji = await chooseStatusEmoji(caption, config.emojis);
-    if (!emoji) return;
+    if (!caption) {
+        console.log('[AutoStatus] Skipped: status has no text caption.');
+        return;
+    }
 
-    const participant = statusKey.participant || statusKey.remoteJid;
+    const participant = statusKey.participant;
 
-    await sock.relayMessage(
+    if (!participant) {
+        console.log('[AutoStatus] Skipped: status author JID is missing.');
+        return;
+    }
+
+    let emoji = chooseCaptionStatusEmoji(caption, config.emojis);
+
+    if (emoji) {
+        console.log('[AutoStatus] Using an emoji found in the status caption.');
+    } else {
+        emoji = await chooseStatusEmoji(caption, config.emojis);
+
+        if (!emoji) {
+            console.log('[AutoStatus] Gemini unavailable; using local caption-based fallback.');
+            emoji = chooseFallbackStatusEmoji(caption, config.emojis);
+        }
+    }
+
+    if (!emoji) {
+        console.log('[AutoStatus] No valid reaction emoji was selected.');
+        return;
+    }
+
+    await sock.sendMessage(
         'status@broadcast',
         {
-            reactionMessage: {
-                key: {
-                    remoteJid: 'status@broadcast',
-                    id: statusKey.id,
-                    participant,
-                    fromMe: false
-                },
-                text: emoji
+            react: {
+                text: emoji,
+                key: statusKey
             }
         },
         {
-            statusJidList: [statusKey.remoteJid, participant]
+            statusJidList: [participant]
         }
     );
-}
 
+    console.log('[AutoStatus] Status reaction sent successfully.');
+}
 async function processStatusMessage(sock, statusMessage, config) {
     const key = statusMessage?.key;
 
