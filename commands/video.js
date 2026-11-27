@@ -2,7 +2,7 @@ const yts = require('yt-search');
 const settings = require('../settings');
 const APIs = require('../lib/api');
 const Media = require('../lib/mediaEngine');
-const {createOperation}=require("../lib/mediaTelemetry");
+
 const { fetchWhatsAppVideo } = require('../lib/waVideo');
 
 function isYouTubeUrl(text) {
@@ -19,7 +19,7 @@ function formatInfo(video) {
   return `🎬 *${video.title}*\n⏱ Duration: ${video.timestamp || '—'}\n👀 Views: ${views}`;
 }
 
-async function resolveVideo(videoUrl, consume, report, telemetry) {
+async function resolveVideo(videoUrl, consume, report) {
   const steps = [
     ['Knight', () => APIs.knightVideoDownload(videoUrl)],
     ['Prince', () => APIs.princeVideoDownload(videoUrl)],
@@ -29,11 +29,11 @@ async function resolveVideo(videoUrl, consume, report, telemetry) {
     ['Okatsu', () => APIs.getOkatsuVideoByUrl(videoUrl)],
   ];
 
-  return Media.tryProviders(steps, consume, report, telemetry);
+  return Media.tryProviders(steps, consume, report);
 }
 
 async function videoCommand(sock, chatId, message) {
-  let telemetry;
+
   let downloadingReaction = false;
 
   try {
@@ -49,7 +49,7 @@ async function videoCommand(sock, chatId, message) {
       );
     }
 
-    telemetry = createOperation("video");
+
 
     let preview;
     let videoUrl;
@@ -66,7 +66,7 @@ async function videoCommand(sock, chatId, message) {
       preview = search?.videos?.[0];
 
       if (!preview) {
-        telemetry.finish(false, 'NO_RESULTS');
+
         await sock.sendMessage(
           chatId,
           { text: 'No video results found for your search.' },
@@ -123,12 +123,11 @@ async function videoCommand(sock, chatId, message) {
         progress
       ),
       () => {},
-      telemetry
     );
 
     if (!dl) {
       dl = {
-        buffer: await Media.localDownload(videoUrl, 'video', progress, telemetry),
+        buffer: await Media.localDownload(videoUrl, 'video', progress),
         title: preview.title,
       };
     }
@@ -149,9 +148,9 @@ async function videoCommand(sock, chatId, message) {
       { quoted: message }
     );
 
-    telemetry.finish(true);
+
   } catch (err) {
-    telemetry?.finish(false);
+
     console.error('[video]', err?.message || err);
 
     await sock.sendMessage(

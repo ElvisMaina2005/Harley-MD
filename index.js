@@ -16,10 +16,9 @@ const groupManagement = require('./commands/groupManagement');
 require('./settings')
 const { Boom } = require('@hapi/boom')
 require('dotenv').config();
-const { importSession, syncRemoteSession, startRemoteSync } = require('./session-import');
+const { importSession } = require('./session-import');
 const { startDailyGreetings, stopDailyGreetings } = require('./lib/dailyGreetings');
 const { startUpdateNotifier, stopUpdateNotifier } = require('./lib/updateNotifier');
-const analytics = require('./lib/analytics');
 const fs = require('fs')
 const chalk = require('chalk')
 const FileType = require('file-type')
@@ -110,7 +109,6 @@ function scheduleReconnect() {
     reconnectTimer = setTimeout(() => {
         reconnectTimer = null;
         if (halted || starting || activeSocket) return;
-        analytics.recordConnection('reconnecting');
         void startXeonBotInc();
     }, 5000);
 }
@@ -119,7 +117,6 @@ async function startXeonBotInc() {
     starting = true;
     try {
         await importSession();
-        startRemoteSync();
         let { version, isLatest } = await fetchLatestBaileysVersion()
         const { state, saveCreds } = await useMultiFileAuthState(`./session`)
         if (importedMode && state.creds.registered !== true) throw new Error('Imported credentials are not registered. Generate a fresh SESSION_ID.');
@@ -155,7 +152,7 @@ async function startXeonBotInc() {
         // Save credentials when they update
         XeonBotInc.ev.on('creds.update', () => {
             if (activeSocket !== XeonBotInc) return;
-            void saveCreds().then(() => syncRemoteSession()).catch(() => console.error('Credential save or remote backup failed'));
+            void saveCreds().catch(error => console.error('Credential save failed:', error.message));
         })
 
     store.bind(XeonBotInc.ev)
@@ -302,10 +299,8 @@ async function startXeonBotInc() {
         if (connection == "open") {
             if (connected) return;
             connected = true;
-            analytics.recordConnection('connected');
             startDailyGreetings(XeonBotInc);
             startUpdateNotifier(XeonBotInc);
-            analytics.startHeartbeat(XeonBotInc);
             groupManagement.start(XeonBotInc);
             memberGreetings.start(XeonBotInc);
             automation.start(XeonBotInc);
@@ -347,7 +342,6 @@ async function startXeonBotInc() {
             connected = false;
             stopDailyGreetings(XeonBotInc);
             stopUpdateNotifier(XeonBotInc);
-            analytics.stopHeartbeat(XeonBotInc);
             groupManagement.stop(XeonBotInc);
             memberGreetings.stop(XeonBotInc);
             automation.stop(XeonBotInc);
@@ -358,8 +352,6 @@ async function startXeonBotInc() {
             const errMsg = String(lastDisconnect?.error?.message || '');
             const terminal = [401, 403, 411, 440, 500, DisconnectReason.loggedOut, DisconnectReason.connectionReplaced].includes(statusCode) || /conflict|replaced/i.test(errMsg);
             console.log(`Connection closed (status ${statusCode ?? 'unknown'}).`);
-            analytics.recordConnection('disconnected', terminal ? 'SESSION_CONFLICT' : 'CONNECTION_CLOSED');
-            analytics.recordError(terminal ? 'SESSION_CONFLICT' : 'CONNECTION_CLOSED');
             if (terminal) {
                 halted = true;
                 console.error('Authentication or session conflict. Session preserved. Stop the bot and check Linked Devices before restarting.');
@@ -436,17 +428,14 @@ async function startXeonBotInc() {
     return XeonBotInc
     } catch (error) {
         const message = String(error?.message || error);
-        const permanent = /Invalid Harley-MD session prefix|Invalid (?:remote )?session payload|Invalid session format|Invalid session file|Invalid session JSON file|Session credentials are not registered|Session credentials are incomplete|Imported credentials are not registered|Remote session retrieval failed \((?:400|401|403|404|410|422)\)|Remote session response is invalid/.test(message);
+        const permanent = /Invalid Harley-MD session prefix|Invalid session payload|Invalid session format|Invalid session file|Invalid session JSON file|Session credentials are not registered|Session credentials are incomplete|Imported credentials are not registered/.test(message);
         if (permanent) halted = true;
         const socket = activeSocket;
         stopDailyGreetings(socket);
         stopUpdateNotifier(socket);
-        analytics.stopHeartbeat(socket);
         groupManagement.stop(socket);
         memberGreetings.stop(socket);
         automation.stop(socket);
-        analytics.recordConnection('startup_failure', 'STARTUP_FAILURE');
-        analytics.recordError('STARTUP_FAILURE');
         activeSocket = null;
         try { socket?.end(undefined); } catch {}
         if (permanent) {

@@ -28,7 +28,6 @@ setInterval(() => {
 }, 3 * 60 * 60 * 1000);
 
 const settings = require('./settings');
-const analytics = require('./lib/analytics');
 require('./config.js');
 const { isBanned } = require('./lib/isBanned');
 const yts = require('yt-search');
@@ -183,8 +182,7 @@ const channelInfo = {
 
 async function handleMessages(sock, messageUpdate, printLog) {
     let chatId;
-    let analyticsCommand = null;
-    let analyticsSuccess = true;
+    let commandName = null;
     try {
         const { messages, type } = messageUpdate;
         let message = messages[0];
@@ -420,42 +418,39 @@ async function handleMessages(sock, messageUpdate, printLog) {
 
         switch (true) {
             case sports.names.has(userMessage.split(/\s+/)[0].slice(1)):
-                analyticsCommand = userMessage.split(/\s+/)[0].slice(1);
-                analyticsSuccess = await sports.run(sock, chatId, message, analyticsCommand, rawText.trim().split(/\s+/).slice(1).join(' '));
+                commandName = userMessage.split(/\s+/)[0].slice(1);
+                await sports.run(sock, chatId, message, commandName, rawText.trim().split(/\s+/).slice(1).join(' '));
                 commandExecuted = true;
                 break;
             case automation.names.has(userMessage.split(/\s+/)[0].slice(1)):
-                analyticsCommand = userMessage.split(/\s+/)[0].slice(1);
-                await automation.run(sock, chatId, message, analyticsCommand, rawText.trim().split(/\s+/).slice(1).join(' '));
+                commandName = userMessage.split(/\s+/)[0].slice(1);
+                await automation.run(sock, chatId, message, commandName, rawText.trim().split(/\s+/).slice(1).join(' '));
                 commandExecuted = true;
                 break;
             case moderation.names.has(userMessage.split(/\s+/)[0].slice(1)):
-                analyticsCommand = userMessage.split(/\s+/)[0].slice(1);
-                await moderation.run(sock, chatId, message, analyticsCommand, rawText.trim().split(/\s+/).slice(1).join(' '));
+                commandName = userMessage.split(/\s+/)[0].slice(1);
+                await moderation.run(sock, chatId, message, commandName, rawText.trim().split(/\s+/).slice(1).join(' '));
                 commandExecuted = true;
                 break;
             case groupManagement.names.has(userMessage.split(/\s+/)[0].slice(1)):
-                analyticsCommand = userMessage.split(/\s+/)[0].slice(1);
-                await groupManagement.run(sock, chatId, message, analyticsCommand, rawText.trim().split(/\s+/).slice(1).join(' '));
+                commandName = userMessage.split(/\s+/)[0].slice(1);
+                await groupManagement.run(sock, chatId, message, commandName, rawText.trim().split(/\s+/).slice(1).join(' '));
                 commandExecuted = true;
                 break;
             case ownerCustomization.names.has(userMessage.split(/\s+/)[0].slice(1)):
-                analyticsCommand = userMessage.split(/\s+/)[0].slice(1);
-                await ownerCustomization.run(sock, chatId, message, analyticsCommand, rawText.trim().split(/\s+/).slice(1).join(' '));
+                commandName = userMessage.split(/\s+/)[0].slice(1);
+                await ownerCustomization.run(sock, chatId, message, commandName, rawText.trim().split(/\s+/).slice(1).join(' '));
                 commandExecuted = true;
                 break;
             case userMessage === '.pair' || userMessage.startsWith('.pair '):
-                analyticsCommand = 'pair';
                 await pairCommand(sock, chatId, message);
                 commandExecuted = true;
                 break;
             case userMessage === '.mpair' || userMessage.startsWith('.mpair '):
-                analyticsCommand = 'mpair';
                 await mpairCommand(sock, chatId, message, rawText.slice(6).trim());
                 commandExecuted = true;
                 break;
             case userMessage === '.simage': {
-                analyticsCommand = 'simage';
                 const quotedMessage = message.message?.extendedTextMessage?.contextInfo?.quotedMessage;
                 if (quotedMessage?.stickerMessage) {
                     await simageCommand(sock, quotedMessage, chatId);
@@ -466,12 +461,10 @@ async function handleMessages(sock, messageUpdate, printLog) {
                 break;
             }
             case userMessage.startsWith('.kick'):
-                analyticsCommand = 'kick';
                 const mentionedJidListKick = message.message.extendedTextMessage?.contextInfo?.mentionedJid || [];
                 await kickCommand(sock, chatId, senderId, mentionedJidListKick, message);
                 break;
             case userMessage.startsWith('.mute'):
-                analyticsCommand = 'mute';
                 {
                     const parts = userMessage.trim().split(/\s+/);
                     const muteArg = parts[1];
@@ -484,11 +477,9 @@ async function handleMessages(sock, messageUpdate, printLog) {
                 }
                 break;
             case userMessage === '.unmute':
-                analyticsCommand = 'unmute';
                 await unmuteCommand(sock, chatId, senderId);
                 break;
             case userMessage.startsWith('.ban'):
-                analyticsCommand = 'ban';
                 if (!isGroup) {
                     if (!message.key.fromMe && !senderIsSudo) {
                         await sock.sendMessage(chatId, { text: 'Only owner/sudo can use .ban in private chat.' }, { quoted: message });
@@ -498,7 +489,6 @@ async function handleMessages(sock, messageUpdate, printLog) {
                 await banCommand(sock, chatId, message);
                 break;
             case userMessage.startsWith('.unban'):
-                analyticsCommand = 'unban';
                 if (!isGroup) {
                     if (!message.key.fromMe && !senderIsSudo) {
                         await sock.sendMessage(chatId, { text: 'Only owner/sudo can use .unban in private chat.' }, { quoted: message });
@@ -508,50 +498,41 @@ async function handleMessages(sock, messageUpdate, printLog) {
                 await unbanCommand(sock, chatId, message);
                 break;
             case /^\.(setmenuimage|restoremenuimage)(?:\s|$)/.test(userMessage):
-                analyticsCommand = userMessage.split(/\s+/)[0].slice(1);
-                await menuSettingsCommand(sock, chatId, message, analyticsCommand, rawText.trim().split(/\s+/).slice(1).join(' '));
+                commandName = userMessage.split(/\s+/)[0].slice(1);
+                await menuSettingsCommand(sock, chatId, message, commandName, rawText.trim().split(/\s+/).slice(1).join(' '));
                 commandExecuted = true;
                 break;
             case userMessage === '.help' || userMessage === '.menu' || userMessage === '.bot' || userMessage === '.list':
-                analyticsCommand = 'help';
                 await helpCommand(sock, chatId, message, global.channelLink);
                 commandExecuted = true;
                 break;
             case userMessage === '.sticker' || userMessage === '.s':
-                analyticsCommand = 'sticker';
                 await stickerCommand(sock, chatId, message);
                 commandExecuted = true;
                 break;
             case userMessage.startsWith('.warnings'):
-                analyticsCommand = 'warnings';
                 const mentionedJidListWarnings = message.message.extendedTextMessage?.contextInfo?.mentionedJid || [];
                 await warningsCommand(sock, chatId, mentionedJidListWarnings);
                 break;
             case userMessage.startsWith('.warn'):
-                analyticsCommand = 'warn';
                 const mentionedJidListWarn = message.message.extendedTextMessage?.contextInfo?.mentionedJid || [];
                 await warnCommand(sock, chatId, senderId, mentionedJidListWarn, message);
                 break;
             case userMessage.startsWith('.tts'):
-                analyticsCommand = 'tts';
                 const text = userMessage.slice(4).trim();
                 await ttsCommand(sock, chatId, text, message);
                 break;
             case userMessage.startsWith('.delete') || userMessage.startsWith('.del'):
-                analyticsCommand = 'delete';
                 await deleteCommand(sock, chatId, message, senderId);
                 break;
             case userMessage.startsWith('.attp'):
-                analyticsCommand = 'attp';
                 await attpCommand(sock, chatId, message);
                 break;
 
             case userMessage === '.settings':
-                analyticsCommand = 'settings';
                 await settingsCommand(sock, chatId, message);
                 break;
             case modeCommand: {
-                analyticsCommand = 'mode';
                 if (!message.key.fromMe) {
                     await sock.sendMessage(chatId,{text:'Only the connected bot owner can change mode.', ...channelInfo},{quoted:message});
                     return;
@@ -572,7 +553,6 @@ async function handleMessages(sock, messageUpdate, printLog) {
                 break;
             }
             case userMessage.startsWith('.anticall'):
-                analyticsCommand = 'anticall';
                 if (!message.key.fromMe && !senderIsOwnerOrSudo) {
                     await sock.sendMessage(chatId, { text: 'Only owner/sudo can use anticall.' }, { quoted: message });
                     break;
@@ -583,7 +563,6 @@ async function handleMessages(sock, messageUpdate, printLog) {
                 }
                 break;
             case userMessage.startsWith('.pmblocker'):
-                analyticsCommand = 'pmblocker';
                 {
                     const args = userMessage.split(' ').slice(1).join(' ');
                     await pmblockerCommand(sock, chatId, message, args);
@@ -591,19 +570,15 @@ async function handleMessages(sock, messageUpdate, printLog) {
                 commandExecuted = true;
                 break;
             case userMessage === '.owner':
-                analyticsCommand = 'owner';
                 await ownerCommand(sock, chatId);
                 break;
             case userMessage === '.tagall':
-                analyticsCommand = 'tagall';
                 await tagAllCommand(sock, chatId, senderId, message);
                 break;
             case userMessage === '.tagnotadmin':
-                analyticsCommand = 'tagnotadmin';
                 await tagNotAdminCommand(sock, chatId, senderId, message);
                 break;
             case userMessage.startsWith('.hidetag'):
-                analyticsCommand = 'hidetag';
                 {
                     const messageText = rawText.slice(8).trim();
                     const replyMessage = message.message?.extendedTextMessage?.contextInfo?.quotedMessage || null;
@@ -611,17 +586,14 @@ async function handleMessages(sock, messageUpdate, printLog) {
                 }
                 break;
             case userMessage.startsWith('.tag'):
-                analyticsCommand = 'tag';
                 const messageText = rawText.slice(4).trim();  // use rawText here, not userMessage
                 const replyMessage = message.message?.extendedTextMessage?.contextInfo?.quotedMessage || null;
                 await tagCommand(sock, chatId, senderId, messageText, replyMessage, message);
                 break;
             case userMessage.startsWith('.antibot') || userMessage.startsWith('.nobot'):
-                analyticsCommand = 'antibot';
                 await antibotCommand(sock, chatId, message, senderId);
                 break;
             case userMessage.startsWith('.antilink'):
-                analyticsCommand = 'antilink';
                 if (!isGroup) {
                     await sock.sendMessage(chatId, {
                         text: 'This command can only be used in groups.',
@@ -639,7 +611,6 @@ async function handleMessages(sock, messageUpdate, printLog) {
                 await handleAntilinkCommand(sock, chatId, userMessage, senderId, isSenderAdmin, message);
                 break;
             case userMessage.startsWith('.antitag'):
-                analyticsCommand = 'antitag';
                 if (!isGroup) {
                     await sock.sendMessage(chatId, {
                         text: 'This command can only be used in groups.',
@@ -657,23 +628,18 @@ async function handleMessages(sock, messageUpdate, printLog) {
                 await handleAntitagCommand(sock, chatId, userMessage, senderId, isSenderAdmin, message);
                 break;
             case userMessage === '.meme':
-                analyticsCommand = 'meme';
                 await memeCommand(sock, chatId, message);
                 break;
             case userMessage === '.joke':
-                analyticsCommand = 'joke';
                 await jokeCommand(sock, chatId, message);
                 break;
             case userMessage === '.quote':
-                analyticsCommand = 'quote';
                 await quoteCommand(sock, chatId, message);
                 break;
             case userMessage === '.fact':
-                analyticsCommand = 'fact';
                 await factCommand(sock, chatId, message, message);
                 break;
             case userMessage.startsWith('.weather'):
-                analyticsCommand = 'weather';
                 const city = userMessage.slice(9).trim();
                 if (city) {
                     await weatherCommand(sock, chatId, message, city);
@@ -682,16 +648,13 @@ async function handleMessages(sock, messageUpdate, printLog) {
                 }
                 break;
             case userMessage === '.news':
-                analyticsCommand = 'news';
                 await newsCommand(sock, chatId);
                 break;
             case userMessage.startsWith('.ttt') || userMessage.startsWith('.tictactoe'):
-                analyticsCommand = 'ttt';
                 const tttText = userMessage.split(' ').slice(1).join(' ');
                 await tictactoeCommand(sock, chatId, senderId, tttText);
                 break;
             case userMessage.startsWith('.move'):
-                analyticsCommand = 'move';
                 const position = parseInt(userMessage.split(' ')[1]);
                 if (isNaN(position)) {
                     await sock.sendMessage(chatId, { text: 'Please provide a valid position number for Tic-Tac-Toe move.', ...channelInfo }, { quoted: message });
@@ -700,15 +663,12 @@ async function handleMessages(sock, messageUpdate, printLog) {
                 }
                 break;
             case userMessage === '.topmembers':
-                analyticsCommand = 'topmembers';
                 topMembers(sock, chatId, isGroup);
                 break;
             case userMessage.startsWith('.hangman'):
-                analyticsCommand = 'hangman';
                 startHangman(sock, chatId);
                 break;
             case userMessage.startsWith('.guess'):
-                analyticsCommand = 'guess';
                 const guessedLetter = userMessage.split(' ')[1];
                 if (guessedLetter) {
                     guessLetter(sock, chatId, guessedLetter);
@@ -717,11 +677,9 @@ async function handleMessages(sock, messageUpdate, printLog) {
                 }
                 break;
             case userMessage.startsWith('.trivia'):
-                analyticsCommand = 'trivia';
                 startTrivia(sock, chatId);
                 break;
             case userMessage.startsWith('.answer'):
-                analyticsCommand = 'answer';
                 const answer = userMessage.split(' ').slice(1).join(' ');
                 if (answer) {
                     answerTrivia(sock, chatId, answer);
@@ -730,68 +688,54 @@ async function handleMessages(sock, messageUpdate, printLog) {
                 }
                 break;
             case userMessage.startsWith('.compliment'):
-                analyticsCommand = 'compliment';
                 await complimentCommand(sock, chatId, message);
                 break;
             case userMessage.startsWith('.insult'):
-                analyticsCommand = 'insult';
                 await insultCommand(sock, chatId, message);
                 break;
             case userMessage.startsWith('.8ball'):
-                analyticsCommand = '8ball';
                 const question = userMessage.split(' ').slice(1).join(' ');
                 await eightBallCommand(sock, chatId, question);
                 break;
             case userMessage.startsWith('.lyrics'):
-                analyticsCommand = 'lyrics';
                 const songTitle = userMessage.split(' ').slice(1).join(' ');
                 await lyricsCommand(sock, chatId, songTitle, message);
                 break;
             case userMessage.startsWith('.simp'):
-                analyticsCommand = 'simp';
                 const quotedMsg = message.message?.extendedTextMessage?.contextInfo?.quotedMessage;
                 const mentionedJid = message.message?.extendedTextMessage?.contextInfo?.mentionedJid || [];
                 await simpCommand(sock, chatId, quotedMsg, mentionedJid, senderId);
                 break;
             case userMessage.startsWith('.stupid') || userMessage.startsWith('.itssostupid') || userMessage.startsWith('.iss'):
-                analyticsCommand = 'stupid';
                 const stupidQuotedMsg = message.message?.extendedTextMessage?.contextInfo?.quotedMessage;
                 const stupidMentionedJid = message.message?.extendedTextMessage?.contextInfo?.mentionedJid || [];
                 const stupidArgs = userMessage.split(' ').slice(1);
                 await stupidCommand(sock, chatId, stupidQuotedMsg, stupidMentionedJid, senderId, stupidArgs);
                 break;
             case userMessage === '.dare':
-                analyticsCommand = 'dare';
                 await dareCommand(sock, chatId, message);
                 break;
             case userMessage === '.truth':
-                analyticsCommand = 'truth';
                 await truthCommand(sock, chatId, message);
                 break;
             case userMessage === '.clear':
-                analyticsCommand = 'clear';
                 if (isGroup) await clearCommand(sock, chatId);
                 break;
             case userMessage.startsWith('.promote'):
-                analyticsCommand = 'promote';
                 const mentionedJidListPromote = message.message.extendedTextMessage?.contextInfo?.mentionedJid || [];
                 await promoteCommand(sock, chatId, mentionedJidListPromote, message);
                 break;
             case userMessage.startsWith('.demote'):
-                analyticsCommand = 'demote';
                 const mentionedJidListDemote = message.message.extendedTextMessage?.contextInfo?.mentionedJid || [];
                 await demoteCommand(sock, chatId, mentionedJidListDemote, message);
                 break;
             case userMessage === '.ping':
-                analyticsCommand = 'ping';
                 await pingCommand(sock, chatId, message);
                 break;
             case userMessage === '.alive':
-                analyticsCommand = 'alive';
                 await aliveCommand(sock, chatId, message);
                 break;
             case userMessage.startsWith('.mention '):
-                analyticsCommand = 'mention';
                 {
                     const args = userMessage.split(' ').slice(1).join(' ');
                     const isOwner = message.key.fromMe || senderIsSudo;
@@ -799,19 +743,16 @@ async function handleMessages(sock, messageUpdate, printLog) {
                 }
                 break;
             case userMessage === '.setmention':
-                analyticsCommand = 'setmention';
                 {
                     const isOwner = message.key.fromMe || senderIsSudo;
                     await setMentionCommand(sock, chatId, message, isOwner);
                 }
                 break;
             case userMessage.startsWith('.blur'):
-                analyticsCommand = 'blur';
                 const quotedMessage = message.message?.extendedTextMessage?.contextInfo?.quotedMessage;
                 await blurCommand(sock, chatId, message, quotedMessage);
                 break;
             case userMessage.startsWith('.welcome'):
-                analyticsCommand = 'welcome';
                 if (isGroup) {
                     // Check admin status if not already checked
                     if (!isSenderAdmin) {
@@ -829,7 +770,6 @@ async function handleMessages(sock, messageUpdate, printLog) {
                 }
                 break;
             case userMessage.startsWith('.goodbye'):
-                analyticsCommand = 'goodbye';
                 if (isGroup) {
                     // Check admin status if not already checked
                     if (!isSenderAdmin) {
@@ -851,11 +791,9 @@ async function handleMessages(sock, messageUpdate, printLog) {
             case userMessage === '.sc':
             case userMessage === '.script':
             case userMessage === '.repo':
-                analyticsCommand = 'git';
                 await githubCommand(sock, chatId, message);
                 break;
             case userMessage.startsWith('.antibadword'):
-                analyticsCommand = 'antibadword';
                 if (!isGroup) {
                     await sock.sendMessage(chatId, { text: 'This command can only be used in groups.', ...channelInfo }, { quoted: message });
                     return;
@@ -873,7 +811,6 @@ async function handleMessages(sock, messageUpdate, printLog) {
                 await antibadwordCommand(sock, chatId, message, senderId, isSenderAdmin);
                 break;
             case userMessage.startsWith('.chatbot'):
-                analyticsCommand = 'chatbot';
                 if (!isGroup) {
                     await sock.sendMessage(chatId, { text: 'This command can only be used in groups.', ...channelInfo }, { quoted: message });
                     return;
@@ -890,7 +827,6 @@ async function handleMessages(sock, messageUpdate, printLog) {
                 await handleChatbotCommand(sock, chatId, message, match);
                 break;
             case userMessage.startsWith('.take') || userMessage.startsWith('.steal'):
-                analyticsCommand = 'take';
                 {
                     const isSteal = userMessage.startsWith('.steal');
                     const sliceLen = isSteal ? 6 : 5; // '.steal' vs '.take'
@@ -899,19 +835,15 @@ async function handleMessages(sock, messageUpdate, printLog) {
                 }
                 break;
             case userMessage === '.flirt':
-                analyticsCommand = 'flirt';
                 await flirtCommand(sock, chatId, message);
                 break;
             case userMessage.startsWith('.character'):
-                analyticsCommand = 'character';
                 await characterCommand(sock, chatId, message);
                 break;
             case userMessage.startsWith('.waste'):
-                analyticsCommand = 'waste';
                 await wastedCommand(sock, chatId, message);
                 break;
             case userMessage === '.ship':
-                analyticsCommand = 'ship';
                 if (!isGroup) {
                     await sock.sendMessage(chatId, { text: 'This command can only be used in groups!', ...channelInfo }, { quoted: message });
                     return;
@@ -919,7 +851,6 @@ async function handleMessages(sock, messageUpdate, printLog) {
                 await shipCommand(sock, chatId, message);
                 break;
             case userMessage === '.groupinfo' || userMessage === '.infogp' || userMessage === '.infogrupo':
-                analyticsCommand = 'groupinfo';
                 if (!isGroup) {
                     await sock.sendMessage(chatId, { text: 'This command can only be used in groups!', ...channelInfo }, { quoted: message });
                     return;
@@ -927,7 +858,6 @@ async function handleMessages(sock, messageUpdate, printLog) {
                 await groupInfoCommand(sock, chatId, message);
                 break;
             case userMessage === '.resetlink' || userMessage === '.revoke' || userMessage === '.anularlink':
-                analyticsCommand = 'resetlink';
                 if (!isGroup) {
                     await sock.sendMessage(chatId, { text: 'This command can only be used in groups!', ...channelInfo }, { quoted: message });
                     return;
@@ -935,7 +865,6 @@ async function handleMessages(sock, messageUpdate, printLog) {
                 await resetlinkCommand(sock, chatId, senderId);
                 break;
             case userMessage === '.staff' || userMessage === '.admins' || userMessage === '.listadmin':
-                analyticsCommand = 'staff';
                 if (!isGroup) {
                     await sock.sendMessage(chatId, { text: 'This command can only be used in groups!', ...channelInfo }, { quoted: message });
                     return;
@@ -943,251 +872,192 @@ async function handleMessages(sock, messageUpdate, printLog) {
                 await staffCommand(sock, chatId, message);
                 break;
             case userMessage.startsWith('.tourl') || userMessage.startsWith('.url'):
-                analyticsCommand = 'tourl';
                 await urlCommand(sock, chatId, message);
                 break;
             case userMessage.startsWith('.emojimix') || userMessage.startsWith('.emix'):
-                analyticsCommand = 'emojimix';
                 await emojimixCommand(sock, chatId, message);
                 break;
             case userMessage.startsWith('.tg') || userMessage.startsWith('.stickertelegram') || userMessage.startsWith('.tgsticker') || userMessage.startsWith('.telesticker'):
-                analyticsCommand = 'tg';
                 await stickerTelegramCommand(sock, chatId, message);
                 break;
 
             case userMessage === '.vv':
-                analyticsCommand = 'vv';
                 await viewOnceCommand(sock, chatId, message);
                 break;
             case userMessage === '.vv2':
-                analyticsCommand = 'vv2';
                 await vv2Command(sock, chatId, message, senderId);
                 break;
             case userMessage === '.clearsession' || userMessage === '.clearsesi':
-                analyticsCommand = 'clearsession';
                 await clearSessionCommand(sock, chatId, message);
                 break;
             case userMessage.startsWith('.autostatus'):
-                analyticsCommand = 'autostatus';
                 const autoStatusArgs = userMessage.split(' ').slice(1);
                 await autoStatusCommand(sock, chatId, message, autoStatusArgs);
                 break;
             case userMessage.startsWith('.savestatus') || userMessage.startsWith('.savesm') || userMessage.startsWith('.savest'):
-                analyticsCommand = 'savestatus';
                 await savestatusCommand(sock, chatId, message, senderId);
                 break;
             case userMessage.startsWith('.groupstatus') || userMessage.startsWith('.togstatus') || userMessage.startsWith('.swgc') || userMessage.startsWith('.gstatus') || userMessage === '.gs' || userMessage.startsWith('.gs '):
-                analyticsCommand = 'groupstatus';
                 await groupstatusCommand(sock, chatId, message, senderId);
                 break;
             case userMessage.startsWith('.simp'):
-                analyticsCommand = 'simp';
                 await simpCommand(sock, chatId, message);
                 break;
             case userMessage.startsWith('.metallic'):
-                analyticsCommand = 'metallic';
                 await textmakerCommand(sock, chatId, message, userMessage, 'metallic');
                 break;
             case userMessage.startsWith('.ice'):
-                analyticsCommand = 'ice';
                 await textmakerCommand(sock, chatId, message, userMessage, 'ice');
                 break;
             case userMessage.startsWith('.snow'):
-                analyticsCommand = 'snow';
                 await textmakerCommand(sock, chatId, message, userMessage, 'snow');
                 break;
             case userMessage.startsWith('.impressive'):
-                analyticsCommand = 'impressive';
                 await textmakerCommand(sock, chatId, message, userMessage, 'impressive');
                 break;
             case userMessage.startsWith('.matrix'):
-                analyticsCommand = 'matrix';
                 await textmakerCommand(sock, chatId, message, userMessage, 'matrix');
                 break;
             case userMessage.startsWith('.light'):
-                analyticsCommand = 'light';
                 await textmakerCommand(sock, chatId, message, userMessage, 'light');
                 break;
             case userMessage.startsWith('.neon'):
-                analyticsCommand = 'neon';
                 await textmakerCommand(sock, chatId, message, userMessage, 'neon');
                 break;
             case userMessage.startsWith('.devil'):
-                analyticsCommand = 'devil';
                 await textmakerCommand(sock, chatId, message, userMessage, 'devil');
                 break;
             case userMessage.startsWith('.purple'):
-                analyticsCommand = 'purple';
                 await textmakerCommand(sock, chatId, message, userMessage, 'purple');
                 break;
             case userMessage.startsWith('.thunder'):
-                analyticsCommand = 'thunder';
                 await textmakerCommand(sock, chatId, message, userMessage, 'thunder');
                 break;
             case userMessage.startsWith('.leaves'):
-                analyticsCommand = 'leaves';
                 await textmakerCommand(sock, chatId, message, userMessage, 'leaves');
                 break;
             case userMessage.startsWith('.1917'):
-                analyticsCommand = '1917';
                 await textmakerCommand(sock, chatId, message, userMessage, '1917');
                 break;
             case userMessage.startsWith('.arena'):
-                analyticsCommand = 'arena';
                 await textmakerCommand(sock, chatId, message, userMessage, 'arena');
                 break;
             case userMessage.startsWith('.hacker'):
-                analyticsCommand = 'hacker';
                 await textmakerCommand(sock, chatId, message, userMessage, 'hacker');
                 break;
             case userMessage.startsWith('.sand'):
-                analyticsCommand = 'sand';
                 await textmakerCommand(sock, chatId, message, userMessage, 'sand');
                 break;
             case userMessage.startsWith('.blackpink'):
-                analyticsCommand = 'blackpink';
                 await textmakerCommand(sock, chatId, message, userMessage, 'blackpink');
                 break;
             case userMessage.startsWith('.glitch'):
-                analyticsCommand = 'glitch';
                 await textmakerCommand(sock, chatId, message, userMessage, 'glitch');
                 break;
             case userMessage.startsWith('.fire'):
-                analyticsCommand = 'fire';
                 await textmakerCommand(sock, chatId, message, userMessage, 'fire');
                 break;
             case userMessage.startsWith('.antidelete'):
-                analyticsCommand = 'antidelete';
                 const antideleteMatch = userMessage.slice(11).trim();
                 await handleAntideleteCommand(sock, chatId, message, antideleteMatch);
                 break;
             case userMessage === '.surrender':
-                analyticsCommand = 'surrender';
                 // Handle surrender command for tictactoe game
                 await handleTicTacToeMove(sock, chatId, senderId, 'surrender');
                 break;
             case userMessage === '.cleartmp':
-                analyticsCommand = 'cleartmp';
                 await clearTmpCommand(sock, chatId, message);
                 break;
             case userMessage === '.setpp':
-                analyticsCommand = 'setpp';
                 await setProfilePicture(sock, chatId, message);
                 break;
             case userMessage.startsWith('.setgdesc'):
-                analyticsCommand = 'setgdesc';
                 {
                     const text = rawText.slice(9).trim();
                     await setGroupDescription(sock, chatId, senderId, text, message);
                 }
                 break;
             case userMessage.startsWith('.setgname'):
-                analyticsCommand = 'setgname';
                 {
                     const text = rawText.slice(9).trim();
                     await setGroupName(sock, chatId, senderId, text, message);
                 }
                 break;
             case userMessage.startsWith('.setgpp'):
-                analyticsCommand = 'setgpp';
                 await setGroupPhoto(sock, chatId, senderId, message);
                 break;
             case userMessage.startsWith('.instagram') || userMessage.startsWith('.insta') || (userMessage === '.ig' || userMessage.startsWith('.ig ')):
-                analyticsCommand = 'instagram';
                 await instagramCommand(sock, chatId, message);
                 break;
             case userMessage.startsWith('.igsc'):
-                analyticsCommand = 'igsc';
                 await igsCommand(sock, chatId, message, true);
                 break;
             case userMessage.startsWith('.igs'):
-                analyticsCommand = 'igs';
                 await igsCommand(sock, chatId, message, false);
                 break;
             case userMessage.startsWith('.fb') || userMessage.startsWith('.facebook'):
-                analyticsCommand = 'fb';
                 await facebookCommand(sock, chatId, message);
                 break;
             case userMessage.startsWith('.twitter') || userMessage.startsWith('.x ') || userMessage === '.x' || userMessage.startsWith('.xdl') || userMessage.startsWith('.twdl'):
-                analyticsCommand = 'twitter';
                 await twitterCommand(sock, chatId, message);
                 break;
             case userMessage.startsWith('.music'):
-                analyticsCommand = 'music';
                 await playCommand(sock, chatId, message);
                 break;
             case userMessage.startsWith('.spotify'):
-                analyticsCommand = 'spotify';
                 await spotifyCommand(sock, chatId, message);
                 break;
             case userMessage.startsWith('.play') || userMessage.startsWith('.mp3') || userMessage.startsWith('.ytmp3') || userMessage.startsWith('.song'):
-                analyticsCommand = 'play';
                 await songCommand(sock, chatId, message);
                 break;
             case userMessage.startsWith('.video') || userMessage.startsWith('.ytmp4'):
-                analyticsCommand = 'video';
                 await videoCommand(sock, chatId, message);
                 break;
             case userMessage.startsWith('.tiktok') || userMessage.startsWith('.tt'):
-                analyticsCommand = 'tiktok';
                 await tiktokCommand(sock, chatId, message);
                 break;
             case userMessage === '.ai' || userMessage.startsWith('.ai ') || userMessage.startsWith('.gpt') || userMessage.startsWith('.gemini'):
-                analyticsCommand = 'ai';
                 await aiCommand(sock, chatId, message);
                 break;
             case userMessage.startsWith('.translate') || userMessage.startsWith('.trt'):
-                analyticsCommand = 'translate';
                 const commandLength = userMessage.startsWith('.translate') ? 10 : 4;
                 await handleTranslateCommand(sock, chatId, message, userMessage.slice(commandLength));
                 return;
             case userMessage.startsWith('.ss') || userMessage.startsWith('.ssweb') || userMessage.startsWith('.screenshot'):
-                analyticsCommand = 'ss';
                 const ssCommandLength = userMessage.startsWith('.screenshot') ? 11 : (userMessage.startsWith('.ssweb') ? 6 : 3);
                 await handleSsCommand(sock, chatId, message, userMessage.slice(ssCommandLength).trim());
                 break;
             case userMessage.startsWith('.areact') || userMessage.startsWith('.autoreact') || userMessage.startsWith('.autoreaction'):
-                analyticsCommand = 'areact';
                 await handleAreactCommand(sock, chatId, message, isOwnerOrSudoCheck);
                 break;
             case userMessage.startsWith('.sudo'):
-                analyticsCommand = 'sudo';
                 await sudoCommand(sock, chatId, message);
                 break;
             case userMessage === '.goodnight' || userMessage === '.lovenight' || userMessage === '.gn':
-                analyticsCommand = 'goodnight';
                 await goodnightCommand(sock, chatId, message);
                 break;
             case userMessage === '.shayari' || userMessage === '.shayri':
-                analyticsCommand = 'shayari';
                 await shayariCommand(sock, chatId, message);
                 break;
             case userMessage === '.roseday':
-                analyticsCommand = 'roseday';
                 await rosedayCommand(sock, chatId, message);
                 break;
             case userMessage.startsWith('.imagine') || userMessage.startsWith('.flux') || userMessage.startsWith('.dalle'): await imagineCommand(sock, chatId, message);
-                analyticsCommand = 'imagine';
                 break;
             case userMessage === '.jid': await groupJidCommand(sock, chatId, message);
-                analyticsCommand = 'jid';
                 break;
             case userMessage.startsWith('.autotyping'):
-                analyticsCommand = 'autotyping';
                 await autotypingCommand(sock, chatId, message);
                 commandExecuted = true;
                 break;
             case userMessage.startsWith('.autoread'):
-                analyticsCommand = 'autoread';
                 await autoreadCommand(sock, chatId, message);
                 commandExecuted = true;
                 break;
             case userMessage.startsWith('.heart'):
-                analyticsCommand = 'heart';
                 await handleHeart(sock, chatId, message);
                 break;
             case userMessage.startsWith('.horny'):
-                analyticsCommand = 'horny';
                 {
                     const parts = userMessage.trim().split(/\s+/);
                     const args = ['horny', ...parts.slice(1)];
@@ -1195,7 +1065,6 @@ async function handleMessages(sock, messageUpdate, printLog) {
                 }
                 break;
             case userMessage.startsWith('.circle'):
-                analyticsCommand = 'circle';
                 {
                     const parts = userMessage.trim().split(/\s+/);
                     const args = ['circle', ...parts.slice(1)];
@@ -1203,7 +1072,6 @@ async function handleMessages(sock, messageUpdate, printLog) {
                 }
                 break;
             case userMessage.startsWith('.lgbt'):
-                analyticsCommand = 'lgbt';
                 {
                     const parts = userMessage.trim().split(/\s+/);
                     const args = ['lgbt', ...parts.slice(1)];
@@ -1211,7 +1079,6 @@ async function handleMessages(sock, messageUpdate, printLog) {
                 }
                 break;
             case userMessage.startsWith('.lolice'):
-                analyticsCommand = 'lolice';
                 {
                     const parts = userMessage.trim().split(/\s+/);
                     const args = ['lolice', ...parts.slice(1)];
@@ -1219,7 +1086,6 @@ async function handleMessages(sock, messageUpdate, printLog) {
                 }
                 break;
             case userMessage.startsWith('.simpcard'):
-                analyticsCommand = 'simpcard';
                 {
                     const parts = userMessage.trim().split(/\s+/);
                     const args = ['simpcard', ...parts.slice(1)];
@@ -1227,7 +1093,6 @@ async function handleMessages(sock, messageUpdate, printLog) {
                 }
                 break;
             case userMessage.startsWith('.tonikawa'):
-                analyticsCommand = 'tonikawa';
                 {
                     const parts = userMessage.trim().split(/\s+/);
                     const args = ['tonikawa', ...parts.slice(1)];
@@ -1235,7 +1100,6 @@ async function handleMessages(sock, messageUpdate, printLog) {
                 }
                 break;
             case userMessage.startsWith('.its-so-stupid'):
-                analyticsCommand = 'its-so-stupid';
                 {
                     const parts = userMessage.trim().split(/\s+/);
                     const args = ['its-so-stupid', ...parts.slice(1)];
@@ -1243,7 +1107,6 @@ async function handleMessages(sock, messageUpdate, printLog) {
                 }
                 break;
             case userMessage.startsWith('.namecard'):
-                analyticsCommand = 'namecard';
                 {
                     const parts = userMessage.trim().split(/\s+/);
                     const args = ['namecard', ...parts.slice(1)];
@@ -1253,7 +1116,6 @@ async function handleMessages(sock, messageUpdate, printLog) {
 
             case userMessage.startsWith('.oogway2'):
             case userMessage.startsWith('.oogway'):
-                analyticsCommand = 'oogway2';
                 {
                     const parts = userMessage.trim().split(/\s+/);
                     const sub = userMessage.startsWith('.oogway2') ? 'oogway2' : 'oogway';
@@ -1262,7 +1124,6 @@ async function handleMessages(sock, messageUpdate, printLog) {
                 }
                 break;
             case userMessage.startsWith('.tweet'):
-                analyticsCommand = 'tweet';
                 {
                     const parts = userMessage.trim().split(/\s+/);
                     const args = ['tweet', ...parts.slice(1)];
@@ -1270,7 +1131,6 @@ async function handleMessages(sock, messageUpdate, printLog) {
                 }
                 break;
             case userMessage.startsWith('.ytcomment'):
-                analyticsCommand = 'ytcomment';
                 {
                     const parts = userMessage.trim().split(/\s+/);
                     const args = ['youtube-comment', ...parts.slice(1)];
@@ -1283,7 +1143,6 @@ async function handleMessages(sock, messageUpdate, printLog) {
             case userMessage.startsWith('.jail'):
             case userMessage.startsWith('.passed'):
             case userMessage.startsWith('.triggered'):
-                analyticsCommand = 'comrade';
                 {
                     const parts = userMessage.trim().split(/\s+/);
                     const sub = userMessage.slice(1).split(/\s+/)[0];
@@ -1292,7 +1151,6 @@ async function handleMessages(sock, messageUpdate, printLog) {
                 }
                 break;
             case userMessage.startsWith('.animu'):
-                analyticsCommand = 'animu';
                 {
                     const parts = userMessage.trim().split(/\s+/);
                     const args = parts.slice(1);
@@ -1312,7 +1170,6 @@ async function handleMessages(sock, messageUpdate, printLog) {
             case userMessage.startsWith('.animuquote'):
             case userMessage.startsWith('.quote'):
             case userMessage.startsWith('.loli'):
-                analyticsCommand = 'nom';
                 {
                     const parts = userMessage.trim().split(/\s+/);
                     let sub = parts[0].slice(1);
@@ -1322,12 +1179,10 @@ async function handleMessages(sock, messageUpdate, printLog) {
                 }
                 break;
             case userMessage === '.crop':
-                analyticsCommand = 'crop';
                 await stickercropCommand(sock, chatId, message);
                 commandExecuted = true;
                 break;
             case userMessage.startsWith('.pies'):
-                analyticsCommand = 'pies';
                 {
                     const parts = rawText.trim().split(/\s+/);
                     const args = parts.slice(1);
@@ -1336,42 +1191,34 @@ async function handleMessages(sock, messageUpdate, printLog) {
                 }
                 break;
             case userMessage === '.china':
-                analyticsCommand = 'china';
                 await piesAlias(sock, chatId, message, 'china');
                 commandExecuted = true;
                 break;
             case userMessage === '.indonesia':
-                analyticsCommand = 'indonesia';
                 await piesAlias(sock, chatId, message, 'indonesia');
                 commandExecuted = true;
                 break;
             case userMessage === '.japan':
-                analyticsCommand = 'japan';
                 await piesAlias(sock, chatId, message, 'japan');
                 commandExecuted = true;
                 break;
             case userMessage === '.korea':
-                analyticsCommand = 'korea';
                 await piesAlias(sock, chatId, message, 'korea');
                 commandExecuted = true;
                 break;
             case userMessage === '.india':
-                analyticsCommand = 'india';
                 await piesAlias(sock, chatId, message, 'india');
                 commandExecuted = true;
                 break;
             case userMessage === '.malaysia':
-                analyticsCommand = 'malaysia';
                 await piesAlias(sock, chatId, message, 'malaysia');
                 commandExecuted = true;
                 break;
             case userMessage === '.thailand':
-                analyticsCommand = 'thailand';
                 await piesAlias(sock, chatId, message, 'thailand');
                 commandExecuted = true;
                 break;
             case userMessage.startsWith('.update'):
-                analyticsCommand = 'update';
                 {
                     const parts = rawText.trim().split(/\s+/);
                     const zipArg = parts[1] && parts[1].startsWith('http') ? parts[1] : '';
@@ -1380,15 +1227,12 @@ async function handleMessages(sock, messageUpdate, printLog) {
                 commandExecuted = true;
                 break;
             case userMessage.startsWith('.removebg') || userMessage.startsWith('.rmbg') || userMessage.startsWith('.nobg'):
-                analyticsCommand = 'removebg';
                 await removebgCommand.exec(sock, message, userMessage.split(' ').slice(1));
                 break;
             case userMessage.startsWith('.remini') || userMessage.startsWith('.enhance') || userMessage.startsWith('.upscale'):
-                analyticsCommand = 'remini';
                 await reminiCommand(sock, chatId, message, userMessage.split(' ').slice(1));
                 break;
             case userMessage.startsWith('.sora'):
-                analyticsCommand = 'sora';
                 await soraCommand(sock, chatId, message);
                 break;
             default:
@@ -1432,15 +1276,11 @@ async function handleMessages(sock, messageUpdate, printLog) {
             if (!customization.read().silent) await addCommandReaction(sock, message);
         }
     } catch (error) {
-        analyticsSuccess = false;
-        analytics.recordError(analyticsCommand ? 'COMMAND_EXCEPTION' : 'MESSAGE_HANDLER');
         console.error('❌ Error in message handler:', error.message);
         // Only try to send error message if we have a valid chatId
         if (chatId && error?.output?.statusCode !== 428 && !/connection closed/i.test(error?.message || '')) {
             try { await sock.sendMessage(chatId, { text: '❌ Failed to process command!', ...channelInfo }); } catch {}
         }
-    } finally {
-        if (analyticsCommand) analytics.recordCommand(analyticsCommand, analyticsSuccess);
     }
 }
 

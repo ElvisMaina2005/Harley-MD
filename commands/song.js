@@ -5,7 +5,7 @@ const path = require('path');
 const { toAudio } = require('../lib/converter');
 const APIs = require('../lib/api');
 const Media = require('../lib/mediaEngine');
-const {createOperation}=require("../lib/mediaTelemetry");
+
 
 const {
   UA,
@@ -90,7 +90,7 @@ function detectAudioFormat(buf) {
 }
 
 async function songCommand(sock, chatId, message) {
-  let telemetry;
+
   let downloadingReaction = false;
   try {
     const raw =
@@ -104,10 +104,10 @@ async function songCommand(sock, chatId, message) {
       return;
     }
 
-    telemetry=createOperation("audio");
+
     const video = await resolveVideoInfo(text);
     if (!video?.url) {
-      telemetry.finish(false,'NO_RESULTS');
+
       await sock.sendMessage(chatId, { text: 'No results found.' }, { quoted: message });
       return;
     }
@@ -147,10 +147,10 @@ async function songCommand(sock, chatId, message) {
       const buffer = await fetchAudioBuffer(url, headers);
       if (!detectAudioFormat(buffer)) throw new Error('Not an audio file');
       return buffer;
-    }, undefined, telemetry);
+    });
     if (result) { audioBuffer = result.buffer; audioData = result; }
     else {
-      audioBuffer = await Media.localDownload(video.url, 'audio', undefined, telemetry);
+      audioBuffer = await Media.localDownload(video.url, 'audio');
       audioData = { title: video.title };
     }
 
@@ -175,7 +175,7 @@ async function songCommand(sock, chatId, message) {
       { quoted: message }
     );
 
-    telemetry.finish(true);
+
     try {
       const tempDir = path.join(__dirname, '../temp');
       if (!fs.existsSync(tempDir)) return;
@@ -189,7 +189,7 @@ async function songCommand(sock, chatId, message) {
       }
     } catch {}
   } catch (err) {
-    telemetry?.finish(false);
+
     console.error('Song command error:', err?.message || 'Unknown error');
     let errorMessage = '❌ Failed to download song.';
     if (err.message?.includes('All download sources failed')) {

@@ -28,7 +28,7 @@ async function ownNumber(sock, chatId, message) {
     return null;
 }
 
-async function waitForSession(sock, chatId, id, backupUrl) {
+async function waitForSession(sock, chatId, id) {
     const deadline = Date.now() + 16 * 60 * 1000;
     const url = `${BASE}/session/${id}`;
     while (Date.now() < deadline) {
@@ -43,8 +43,7 @@ async function waitForSession(sock, chatId, id, backupUrl) {
             return;
         }
         if (status !== 'ready') continue;
-        // This endpoint consumes the website copy once. The server's private
-        // backup link is independent and can be used if delivery fails.
+        // Retrieve the completed, self-contained session once.
         const response = await axios.get(`${url}/fetch`, { timeout: 30000, maxRedirects: 0, maxContentLength: 16 * 1024 * 1024 });
         const session = response.data?.session;
         if (response.data?.status !== 'ready' || typeof session !== 'string' || !session.startsWith('HARLEY-MD:~')) {
@@ -58,7 +57,7 @@ async function waitForSession(sock, chatId, id, backupUrl) {
         });
         return;
     }
-    await sock.sendMessage(chatId, { text: 'Pairing timed out. If linked, recover your session privately:\n' + (backupUrl || 'Check your self-chat for the backup link.') + '\nOtherwise send .mpair again.' });
+    await sock.sendMessage(chatId, { text: 'Pairing timed out. If you linked successfully but did not receive your session, send .mpair again.' });
 }
 
 // Deliver the reliable text first. Native flow is optional and must never
@@ -124,10 +123,9 @@ async function mpairCommand(sock, chatId, message, args = '') {
     let background = false;
     try {
         console.log('[MPAIR] Requesting pairing code');
-        const response = await withTimeout(axios.get(`${BASE}/code`, { params: { number, delivery: 'mobile' }, timeout: 90000, maxRedirects: 0, signal: AbortSignal.timeout(90000) }), 95000, 'Pairing API');
-        const { id, code, backupToken } = response.data || {};
+        const response = await withTimeout(axios.get(`${BASE}/code`, { params: { number }, timeout: 90000, maxRedirects: 0, signal: AbortSignal.timeout(90000) }), 95000, 'Pairing API');
+        const { id, code } = response.data || {};
         if (typeof id !== 'string' || !/^[a-f0-9]{64}$/.test(id) || typeof code !== 'string' || !/^[A-Z0-9]{4}-?[A-Z0-9]{4}$/i.test(code)) throw new Error('Invalid pairing response');
-        const backupUrl = typeof backupToken === 'string' && /^[a-f0-9]{64}$/.test(backupToken) ? `${BASE}/backup#${backupToken}` : null;
         console.log('[MPAIR] Code received; sending text');
         await sendPairingCode(sock, chatId, message, code);
         console.log('[MPAIR] Code sent; waiting for linking');
@@ -137,9 +135,9 @@ async function mpairCommand(sock, chatId, message, args = '') {
             console.warn('[MPAIR] Optional copy button unavailable: ' + reason + '; text code already sent');
         });
         background = true;
-        void waitForSession(sock, chatId, id, backupUrl).catch(async () => {
+        void waitForSession(sock, chatId, id).catch(async () => {
             console.warn('[MPAIR] Session retrieval or delivery failed');
-            try { await sock.sendMessage(chatId, { text: 'Session delivery failed. If linked, recover your session privately:\n' + (backupUrl || 'Check your self-chat for the backup link.') + '\nOtherwise try .mpair again.' }); } catch {}
+            try { await sock.sendMessage(chatId, { text: 'Session delivery failed. If your WhatsApp device linked successfully, please try .mpair again.' }); } catch {}
         }).finally(() => active.delete(number));
     } catch (error) {
         console.warn('[MPAIR] Pairing request failed:', error?.code === 'ECONNABORTED' ? 'API timeout' : error?.response?.status ? 'HTTP ' + error.response.status : 'Request or delivery failed');
